@@ -1,0 +1,9 @@
+node_modules/
+.pnpm-store/
+dist/
+data/
+*.db*
+*.sqlite*
+.env*
+*.log
+test-results/
