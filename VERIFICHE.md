@@ -1,5 +1,19 @@
 # Verifica della demo
 
+## Prima consegna per più imprese — 15 settembre 2026
+
+- 19 verifiche automatiche superate fra test principali e sottotest, usando PostgreSQL/PGlite e il database SQLite storico per le regressioni di importazione.
+- Isolamento verificato attraverso sessioni, API e query RLS senza filtro: aziende con ID cliente sovrapposti restano separate. Tentativi di alterare tenant_id e riferimenti ad altre imprese respinti.
+- Password con hash e salt, sessioni revocate alla disattivazione/cambio password, recupero monouso, limite tentativi e controllo CSRF verificati.
+- Approvazioni duplicate concorrenti: un solo addebito e una sola voce di storico. Inserimenti concorrenti rispettano la disponibilità.
+- Processo HTTP arrestato e riavviato: saldi, storico, sessioni e idempotenza conservati.
+- Backup logico ripristinato in un nuovo database, saldi/storico/account confrontati e coincidenti; backup alterato e ripristino sopra dati esistenti rifiutati.
+- Due percorsi browser Chrome completati: flusso completo pacchetti/interventi, login, archivio e ripristino, personalizzazione azienda, creazione operatore, uscita e isolamento seconda impresa. Nessun errore JavaScript rilevato.
+- Controlli desktop e mobile a 390 px completati; schermate in test-results, esclusa da Git.
+- Build TypeScript/Vite riuscita. Nessuna verifica su PostgreSQL remoto: hosting non ancora scelto e lavoro mantenuto locale su richiesta dell’utente.
+
+## Prima demo SQLite — riferimento storico
+
 Eseguita il 14 settembre 2026 con Node.js 24.19.0 su Windows.
 
 - Compilazione TypeScript senza errori e build Vite riuscita.

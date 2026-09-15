@@ -5,16 +5,46 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {once} from 'node:events';
-test('HTTP: approvazioni concorrenti, collisione disponibilità, export e riavvio processo',async()=>{
-const dir=mkdtempSync(join(tmpdir(),'myclean-http-'));const port=3137;let child;
-async function start(){child=spawn(process.execPath,['server/index.mjs'],{env:{...process.env,PORT:String(port),DB_PATH:join(dir,'test.sqlite')},stdio:['ignore','pipe','pipe']});await Promise.race([once(child.stdout,'data'),once(child,'exit').then(()=>{throw Error('Avvio fallito')}),new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('Timeout avvio')),10000);t.unref()})])}
-async function stop(){const done=once(child,'exit');child.kill();await done}
-const get=async()=>await(await fetch(`http://localhost:${port}/api/state`)).json();
-const post=async(a,b,k=crypto.randomUUID())=>{const r=await fetch(`http://localhost:${port}/api/${a}`,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':k},body:JSON.stringify(b)});return{status:r.status,body:await r.json()}};
-try{await start();let state=await get();const i=state.interventions.find(i=>i.status==='pending');const before=state.packages.find(p=>p.id===i.packageId);const same=await Promise.all(Array.from({length:12},()=>post('approve',{id:i.id},'concurrent-key')));assert(same.every(r=>r.status===200));state=await get();assert.equal(state.packages.find(p=>p.id===i.packageId).remaining,before.remaining-i.cost);assert.equal(state.audit.filter(a=>a.action==='approve'&&a.interventionId===i.id).length,1);
-const distinct=await Promise.all(Array.from({length:8},()=>post('approve',{id:i.id})));assert(distinct.every(r=>r.status===400));
-const client=(await post('client',{name:'Concurrent'})).body.value;const p=(await post('package',{clientId:client.id,tier:'Star',initial:60,rule:'team',paid:true})).body.value;const attempts=await Promise.all(Array.from({length:6},()=>post('intervention',{packageId:p.id,date:new Date().toISOString(),service:'Test',team:'T',duration:60,operators:1,status:'planned'})));assert.equal(attempts.filter(r=>r.status===200).length,1);assert.equal(attempts.filter(r=>r.status===400).length,5);
-const csv=await fetch(`http://localhost:${port}/api/export`);assert.equal(csv.status,200);assert((await csv.text()).includes('Casa Aurora'));const denied=await fetch(`http://localhost:${port}/api/client`,{method:'POST',headers:{'Content-Type':'application/json','Origin':'https://invalid.example','Idempotency-Key':'attack'},body:JSON.stringify({name:'Attacco'})});assert.equal(denied.status,403);
-const persisted=await get();await stop();await start();assert.deepEqual(await get(),persisted);assert.equal((await post('approve',{id:i.id},'concurrent-key')).status,200);assert.deepEqual(await get(),persisted);
-}finally{if(child&&child.exitCode===null)await stop();rmSync(dir,{recursive:true,force:true})}
+import {connectStore,migrate} from '../server/storage.mjs';
+import {provision} from '../server/auth.mjs';
+
+test('HTTP autenticato: isolamento, CSRF, duplicati concorrenti, cookie, export e riavvio',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'luviq-http-')),path=join(dir,'pg'),port=3137;
+  const password='Prova-password-lunga-2026';let child;
+  const db=await connectStore({path});await migrate(db);
+  for(const slug of ['prima','seconda'])await provision(db,{slug,name:slug,email:'admin@example.com',password});
+  await db.close();
+  async function start(){child=spawn(process.execPath,['server/index.mjs'],{env:{...process.env,PORT:String(port),PGLITE_PATH:path,BOOTSTRAP_DEMO:'0'},stdio:['ignore','pipe','pipe']});await Promise.race([once(child.stdout,'data'),once(child,'exit').then(()=>{throw Error('Avvio fallito');}),new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error('Timeout avvio')),15000);timer.unref();})]);}
+  async function stop(){const done=once(child,'exit');child.kill();await done;}
+  const url=`http://localhost:${port}`;
+  const request=async(action,body,session,key=crypto.randomUUID(),csrf=true)=>{
+    const res=await fetch(url+'/api/'+action,{method:'POST',headers:{'Content-Type':'application/json','Origin':url,'Idempotency-Key':key,...(session?{'Cookie':session.cookie,...(csrf?{'X-CSRF-Token':session.csrf}:{})}:{})},body:JSON.stringify(body)});
+    return {status:res.status,body:await res.json(),cookie:res.headers.get('set-cookie')};
+  };
+  const get=async(path,session)=>{const res=await fetch(url+'/api/'+path,{headers:session?{Cookie:session.cookie}:{}});return{status:res.status,text:await res.text()};};
+  try {
+    await start();assert.equal((await get('state')).status,401);assert.equal((await get('export')).status,401);
+    const authA=await request('login',{slug:'prima',email:'admin@example.com',password});
+    assert.equal(authA.status,200);assert(authA.cookie.includes('HttpOnly'));assert(authA.cookie.includes('SameSite=Strict'));
+    const a={cookie:authA.cookie.split(';')[0],csrf:authA.body.csrf};
+    const authB=await request('login',{slug:'seconda',email:'admin@example.com',password});
+    const b={cookie:authB.cookie.split(';')[0],csrf:authB.body.csrf};
+    assert.equal((await request('client',{name:'Senza CSRF'},a,undefined,false)).status,403);
+    const c=await request('client',{name:'Privato A'},a);assert.equal(c.status,200);
+    assert.equal(JSON.parse((await get('state',b)).text).clients.length,0);
+    assert.equal((await request('client',{id:c.body.value.id,name:'Attacco'},b)).status,404);
+    assert.equal((await request('client',{name:'Attacco',tenantId:authA.body.user.tenantId},b)).status,403);
+    const p=(await request('package',{clientId:c.body.value.id,tier:'Star',initial:120,rule:'team',paid:true},a)).body.value;
+    const item={packageId:p.id,date:new Date(Date.now()-10000).toISOString(),duration:120,operators:2,status:'pending',service:'Test',team:'T'};
+    const attempts=await Promise.all(Array.from({length:6},()=>request('intervention',item,a)));
+    assert.equal(attempts.filter(r=>r.status===200).length,1);assert.equal(attempts.filter(r=>r.status===400).length,5);
+    const id=attempts.find(r=>r.status===200).body.value.id;
+    const approvals=await Promise.all(Array.from({length:12},()=>request('approve',{id},a,'approve-key')));
+    assert(approvals.every(r=>r.status===200));assert.equal((await request('approve',{id},a)).status,400);
+    const state=JSON.parse((await get('state',a)).text);assert.equal(state.packages[0].remaining,0);assert.equal(state.audit.filter(e=>e.action==='approve').length,1);
+    assert((await get('export',a)).text.includes('Privato A'));assert(!(await get('export',b)).text.includes('Privato A'));
+    await stop();await start();assert.deepEqual(JSON.parse((await get('state',a)).text),state);
+    assert.equal((await request('approve',{id},a,'approve-key')).status,200);
+    await request('logout',{},a);assert.equal((await get('state',a)).status,401);
+  } finally {if(child&&child.exitCode===null)await stop();rmSync(dir,{recursive:true,force:true});}
 });

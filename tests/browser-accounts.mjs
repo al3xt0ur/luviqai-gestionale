@@ -1,0 +1,31 @@
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
+import {mkdtempSync,mkdirSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import assert from 'node:assert/strict';
+import {connectStore,migrate} from '../server/storage.mjs';
+import {provision} from '../server/auth.mjs';
+const {chromium}=await import(process.argv[2]?pathToFileURL(resolve(process.argv[2])).href:'playwright');
+const dir=mkdtempSync(join(tmpdir(),'luviq-ui-')),password='Browser-account-2026!';
+const store=await connectStore({path:join(dir,'pg')});await migrate(store);
+for(const slug of ['prima','seconda'])await provision(store,{slug,name:'Impresa '+slug,email:'admin@example.com',password});
+await store.close();
+const child=spawn(process.execPath,['server/index.mjs'],{env:{...process.env,PORT:'3138',PGLITE_PATH:join(dir,'pg'),BOOTSTRAP_DEMO:'0'},stdio:['ignore','pipe','pipe']});let browser;
+try{
+  await once(child.stdout,'data');browser=await chromium.launch({channel:'chrome',headless:true});
+  const page=await browser.newPage({viewport:{width:1440,height:1050},locale:'it-IT'});page.setDefaultTimeout(10000);
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('http://localhost:3138');mkdirSync('test-results',{recursive:true});await page.screenshot({path:'test-results/accesso.png'});
+  const login=async(slug,email='admin@example.com',pw=password)=>{await page.getByLabel('Codice azienda').fill(slug);await page.getByLabel('Email',{exact:true}).fill(email);await page.getByLabel('Password',{exact:true}).fill(pw);await page.getByRole('button',{name:'Accedi',exact:true}).click();};
+  const nav=name=>page.locator('nav').getByRole('button',{name:new RegExp(name)});
+  await login('prima');await nav('Clienti').click();await page.getByRole('button',{name:'Nuovo cliente'}).click();await page.getByLabel('Nome cliente').fill('Cliente da archiviare');await page.getByRole('button',{name:'Salva',exact:true}).click();await page.getByRole('button',{name:'Apri scheda'}).click();
+  await page.getByRole('button',{name:'Archivia cliente',exact:true}).click();await page.getByLabel('Motivazione obbligatoria').fill('Contratto concluso');await page.getByRole('button',{name:'Conferma operazione'}).click();await page.getByRole('button',{name:'Tutti i clienti'}).click();await page.getByText('Nessun cliente trovato.',{exact:false}).waitFor();await page.getByRole('button',{name:'Archiviati',exact:true}).click();await page.getByRole('button',{name:'Apri scheda'}).click();await page.getByRole('button',{name:'Ripristina cliente'}).click();await page.getByLabel('Motivazione obbligatoria').fill('Nuovo contratto');await page.getByRole('button',{name:'Conferma operazione'}).click();await page.getByRole('button',{name:'Archivia cliente',exact:true}).waitFor();
+  await nav('Azienda e account').click();await page.getByLabel('Nome impresa').fill('Nome aziendale aggiornato');await page.getByRole('button',{name:'Salva identità'}).click();await page.locator('.company-brand').filter({hasText:'Nome aziendale aggiornato'}).waitFor();
+  await page.getByText('Crea un account',{exact:true}).click();const form=page.locator('details form');await form.getByLabel('Nome',{exact:true}).fill('Operatore browser');await form.getByLabel('Email',{exact:true}).fill('op@example.com');await form.getByLabel('Password iniziale').fill(password);await page.getByRole('button',{name:'Crea account',exact:true}).click();await page.locator('.member').filter({hasText:'Operatore browser'}).waitFor();await page.screenshot({path:'test-results/azienda-account.png',fullPage:true});
+  await page.getByRole('button',{name:'Esci',exact:true}).click();await login('seconda');await nav('Clienti').click();assert.equal(await page.locator('.client-card').count(),0);assert((await page.locator('.company-brand').innerText()).includes('Impresa seconda'));
+  await page.getByRole('button',{name:'Esci',exact:true}).click();await login('prima','op@example.com');await page.getByRole('heading',{name:'Interventi',exact:true}).waitFor();assert.equal(await nav('Clienti').count(),0);assert.equal(await page.getByRole('button',{name:'Nuovo intervento'}).count(),0);
+  await page.setViewportSize({width:390,height:844});await page.screenshot({path:'test-results/operatore-mobile.png',fullPage:true});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);
+  console.log('Browser account OK: login, archivio/ripristino, personalizzazione, creazione operatore, logout, isolamento seconda impresa e interfaccia operatore.');
+}finally{if(browser)await browser.close();const exited=once(child,'exit');child.kill();await exited;rmSync(dir,{recursive:true,force:true});}

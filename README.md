@@ -1,68 +1,122 @@
-# My Clean · Pacchetti ore
+# luviqAI · Gestionale servizi
 
-Demo locale realizzata da **luviqAI** per My Clean Multiservice. Interfaccia React e TypeScript, backend HTTP Node.js e database SQLite persistente. Tutti i testi e i flussi operativi sono in italiano.
+Prima consegna della versione rivendibile a più imprese. My Clean è la prima azienda configurata. React + TypeScript, backend Node.js, PostgreSQL. La prova resta interamente locale: nessun servizio esterno, pagamento o email reale è collegato.
 
 ## Avvio su Windows
 
-Richiede **Node.js 24 LTS** e npm (incluso nell’installazione standard di Node). Da PowerShell nella cartella del progetto:
+Richiede Node.js 24. Per un’installazione riproducibile: `pnpm install --frozen-lockfile` con pnpm 11. In alternativa è possibile usare `npm.cmd install`.
 
 ```powershell
-npm.cmd install
 npm.cmd run build
 npm.cmd start
 ```
 
-Aprire **http://localhost:3000**. Per ricompilare e avviare con un unico comando usare `npm.cmd run dev` (non è un server con hot reload). Arrestare con Ctrl+C. L’app serve esclusivamente sull’interfaccia locale 127.0.0.1 e non viene pubblicata online.
+Aprire **http://localhost:3000**. Con Node e dipendenze già disponibili si può usare direttamente `node scripts/start.mjs`, che ricompila e avvia. Non dispone di hot reload. Arrestare con Ctrl+C.
 
-In questo ambiente le dipendenze sono state installate con pnpm; è incluso `pnpm-lock.yaml`. Per un’installazione riproducibile usare pnpm 11 e `pnpm install --frozen-lockfile`, quindi `pnpm run build` e `pnpm start`. Se npm non è nel PATH ma Node e le dipendenze sono già disponibili, si può avviare direttamente:
+Il database locale usa PGlite, un motore PostgreSQL incorporato nel processo Node: non occorre installare PostgreSQL o Docker. Questo serve a provare il prodotto; per l’hosting sarà usato un server PostgreSQL tramite `DATABASE_URL`. Non è stata verificata in questa consegna una connessione a un servizio PostgreSQL remoto.
+
+## Accessi personali
+
+Al primo avvio locale vengono create due imprese separate:
+
+- `my-clean`: My Clean Multiservice, con i dati importati dalla precedente demo SQLite.
+- `impresa-demo`: seconda impresa, inizialmente vuota, utile per verificare la separazione dei dati.
+
+Le password sono generate casualmente e salvate una sola volta in **`data/accessi-locali.txt`**, escluso da Git. Il file contiene due responsabili e un operatore di prova per My Clean. Non pubblicarlo. Gli account hanno password diverse anche quando l’email dimostrativa coincide.
+
+Nella schermata di accesso inserire codice azienda, email e password. Per cambiare impresa occorre uscire e autenticarsi con l’altro account. Non esiste un selettore che simula ruoli o isolamento.
+
+Da **Azienda e account** il responsabile può modificare nome, colore, sigla del logo e recapiti aziendali, creare account responsabile/operatore e disattivarli. Le disattivazioni invalidano le sessioni. Ogni utente può cambiare la propria password; la modifica richiede quella attuale e chiude le sessioni precedenti.
+
+## Cosa provare
+
+1. Accedere a My Clean e verificare clienti, saldi e storico importati.
+2. Creare un intervento e assegnarlo a un account operatore tramite il campo dedicato. Il nome libero della squadra non assegna permessi.
+3. Accedere come operatore: sono visibili solo gli interventi assegnati e i relativi clienti/pacchetti. L’operatore può inserire la durata effettiva e completare l’intervento, ma non approvare, modificare clienti, confermare pagamenti o esportare dati.
+4. Accedere come responsabile e approvare: vedere le ore da scalare e il saldo risultante. Provare rettifica motivata e annullamento.
+5. Creare un cliente senza pacchetti, archiviarlo con motivazione, trovarlo nel filtro Archiviati e ripristinarlo. L’archiviazione è bloccata in presenza di ore residue, anche su pacchetti non pagati, o interventi aperti.
+6. Ripianificare un intervento pianificato indicando nuova data e motivo. Le ore rimangono impegnate.
+7. Uscire e accedere a impresa-demo: nessun dato di My Clean è visibile. Provare a personalizzare la seconda impresa.
+8. Stampare una scheda cliente oppure esportare il CSV: contiene solo i dati della propria impresa.
+
+## Database e migrazione
+
+- Database corrente: **`data/postgres/`**. Contiene dati di tutte le imprese e credenziali con hash.
+- Database precedente: **`data/myclean.sqlite`**, conservato e aperto in sola lettura per l’importazione.
+- L’importazione mantiene ID, dati cliente, pacchetti, minuti, stato degli interventi e storico. Un marcatore impedisce la seconda importazione.
+- Il vecchio file SQLite non riceve più aggiornamenti. Non avviare una vecchia versione dell’app dopo il passaggio.
+- Password e sessioni non vengono salvate in chiaro nel database: password con scrypt e salt, token di sessione sotto hash. Le sessioni scadono dopo 8 ore.
+- Un file di blocco impedisce a due processi PGlite di aprire la stessa cartella. **Fermare il server prima dei comandi di amministrazione locali.** Non cancellare un blocco mentre il processo è attivo.
+
+Le quantità restano minuti interi; pianificati e da approvare impegnano disponibilità, approvati la consumano. Le modifiche serializzano per impresa tramite transazione e blocco della relativa riga. Chiavi idempotenti distinte per azienda e autore impediscono ripetizioni. I vincoli composti impediscono riferimenti fra imprese.
+
+Le operazioni aziendali usano un ruolo PostgreSQL senza privilegi di proprietario e policy Row Level Security. L’azienda deriva dalla sessione, mai dal browser. I servizi di autenticazione, amministrazione e backup usano il collegamento amministrativo: non sono esposti come query generiche al client.
+
+## Backup e ripristino
+
+Il server crea un backup logico all’avvio e ogni 24 ore **mentre rimane acceso**, in `data/backups/`. La scrittura è atomica; il contenuto ha un checksum di integrità. I backup includono tutte le imprese, hash delle password, storico e chiavi idempotenti. Non includono sessioni attive o link di recupero. Il checksum rileva alterazioni accidentali, non costituisce una firma contro manomissioni intenzionali.
+
+I file non vengono cancellati automaticamente. Controllare lo spazio e copiare periodicamente i backup su un supporto separato: una copia sullo stesso computer non protegge dalla perdita del dispositivo. Questi file sono riservati e non sono scaricabili dalle API delle imprese.
+
+Backup manuale, a server locale arrestato:
 
 ```powershell
-node scripts/start.mjs
+node scripts/database.mjs backup data/backups/manuale.json
 ```
 
-## Prova guidata
+Ripristino di prova in una nuova cartella vuota:
 
-1. Nella **Panoramica**, osservare Casa Aurora con 4 ore residue e Condominio Magnolia con pagamento da confermare.
-2. In **Interventi**, filtrare “Da approvare”: l’intervento di Studio Levante dura 150 minuti con 2 operatori, ma il pacchetto conta per squadra, quindi consuma 2,5 ore. “Approva” mostra prima il saldo risultante.
-3. Rettificare l’intervento approvato con durata e motivazione; poi annullarlo con motivazione e verificare la restituzione delle ore.
-4. Creare un intervento pianificato con data passata o attuale, completarlo con la durata effettiva e approvarlo. Gli appuntamenti futuri restano pianificati fino alla loro data e ora.
-5. In **Pacchetti ore**, confermare il pagamento di Condominio Magnolia, creare un appuntamento e osservare le ore impegnate e libere. Provare una durata superiore alla disponibilità per vedere il blocco.
-6. Rinnovare un pacchetto: ne viene creato uno nuovo, lasciando invariati i dati del precedente. Aprire una scheda in **Clienti** per vedere pacchetti, interventi e storico, oppure stampare il riepilogo / salvarlo in PDF dalla finestra di stampa del browser.
-7. Consultare **Storico attività** ed esportare il CSV completo. Riavviare il server: tutte le modifiche rimangono.
+```powershell
+$env:PGLITE_PATH = "$PWD\data\postgres-ripristino"
+node scripts/database.mjs restore data/backups/manuale.json
+node server/index.mjs
+```
 
-## Database e backup
+Il ripristino rifiuta un database che contiene già imprese. Le password restano quelle del backup; occorre effettuare nuovamente il login. Per tornare al database standard, arrestare e usare `Remove-Item Env:PGLITE_PATH` prima del successivo avvio.
 
-Il database si trova in **`data/myclean.sqlite`**, relativo alla cartella del progetto (anche quando il server parte da un’altra directory). SQLite può creare i file `myclean.sqlite-wal` e `myclean.sqlite-shm` durante l’uso. I dati dimostrativi vengono inseriti soltanto al primo avvio di un database nuovo. Non esiste un comando di reset automatico.
+Il medesimo backup logico può alimentare un PostgreSQL esterno vuoto configurando `DATABASE_URL`: schema e vincoli vengono creati prima dell’importazione. Questa strada è predisposta; la prova su un servizio remoto resta da eseguire quando sarà disponibile.
 
-Per un backup coerente, **arrestare il server**, quindi copiare l’intera cartella `data` in un luogo sicuro. Per ripristinare, arrestare il server e sostituire l’intera cartella `data` con quella del backup. Non mescolare database e file WAL di backup diversi. L’esportazione CSV è un riepilogo per consultazione, non un backup ripristinabile.
+## Creazione impresa e recupero password
 
-È possibile scegliere un altro database con `$env:DB_PATH = 'C:\percorso\myclean.sqlite'` e una porta con `$env:PORT = '3001'` prima dell’avvio. Non eseguire più istanze sul database operativo durante backup o ripristino.
+I comandi sono riservati al gestore della piattaforma e vanno eseguiti dopo aver arrestato il server PGlite:
 
-## Regole del saldo
+```powershell
+node scripts/accounts.mjs create
+node scripts/accounts.mjs reset
+```
 
-- Tutte le quantità sono minuti interi. Le ore mostrate sono arrotondate a due decimali solo per la visualizzazione.
-- Ogni pacchetto conserva taglio originario e saldo iniziale importato. I consumi visualizzati sono quelli registrati in questa app, successivi all’importazione.
-- Conteggio immutabile per operatore (`durata × operatori`) oppure per squadra (`durata`).
-- Pianificati e da approvare impegnano minuti; approvati li consumano; annullati non incidono sul saldo. Libere = iniziali − consumate − impegnate.
-- Ogni modifica avviene in una transazione SQLite `BEGIN IMMEDIATE`. Il controllo della disponibilità include tutti gli altri impegni e addebiti.
-- La chiave di idempotenza conserva il risultato delle richieste già eseguite; un controllo sullo stato impedisce la seconda approvazione anche con chiavi diverse. Rettifiche e annullamenti richiedono una motivazione e registrano prima/dopo.
-- Le date dipendono dall’orologio del computer. Si inseriscono nell’ora locale, si salvano in UTC e si visualizzano nell’ora del browser.
+`create` chiede codice azienda, email e nome; scrive una password casuale in `data/nuovo-account.txt`. `reset` chiede codice azienda ed email e scrive un link monouso valido 30 minuti in `data/recupero-accesso.txt`. Riavviare il server e aprire il link. Nessuna email viene inviata. Comunicare password e link solo al destinatario; il collegamento recupero revoca tutte le vecchie sessioni quando viene utilizzato.
 
-## Verifiche
+## Preparazione per hosting
+
+Non è avvenuta alcuna pubblicazione. Le impostazioni già previste sono:
+
+- `DATABASE_URL`: connessione PostgreSQL con credenziali conservate nell’ambiente, mai nei sorgenti. Il collegamento per la migrazione deve poter creare tabelle e il ruolo `luviq_tenant`.
+- `APP_ORIGIN`: URL pubblico esatto. In produzione deve essere HTTPS.
+- `NODE_ENV=production`: richiede PostgreSQL esterno e HTTPS; disattiva la creazione automatica di aziende demo e aggiunge Secure ai cookie.
+- `PORT`: porta del backend. In locale il server ascolta solo su 127.0.0.1; in produzione su 0.0.0.0 dietro HTTPS/reverse proxy.
+- `BOOTSTRAP_DEMO=0`: disattiva inizializzazione demo e backup periodici incorporati, utile per test o gestione backup esterna.
+
+Prima di pubblicare restano la scelta dell’hosting, verifica TLS della connessione database, configurazione proxy/monitoraggio, backup su supporto esterno e revisione di sicurezza. Il recupero email self-service e MFA non sono implementati. Il limite dei tentativi IP usa l’indirizzo della connessione diretta: dietro un proxy va configurato un limite al perimetro prima dell’uso pubblico.
+
+## Test
 
 ```powershell
 npm.cmd test
 npm.cmd run build
 ```
 
-I test usano database temporanei separati e coprono regole di conteggio, importazione, pagamenti, disponibilità, completamento, vincolo sulle date future, approvazioni duplicate, rettifiche, annullamenti, rinnovi, audit e persistenza. Il test HTTP invia richieste concorrenti e verifica un riavvio reale del processo server. La porta 3137 deve essere libera per il test HTTP.
+La suite comprende regressioni SQLite per l’importazione e test PostgreSQL/PGlite di isolamento RLS, saldi, richieste concorrenti, ruoli, sessioni, recupero password, archiviazione e backup/ripristino. Il test HTTP verifica un riavvio reale sulla porta 3137.
 
-È incluso anche `tests/browser.mjs`, un percorso end-to-end con Playwright e Chrome che usa un database temporaneo sulla porta 3138. Con Playwright disponibile, eseguire `node tests/browser.mjs`; in alternativa passare come primo argomento il percorso assoluto al suo `index.mjs`. Produce schermate desktop/mobile e un PDF di prova in `test-results` (esclusa da Git). Verifica creazione/modifica cliente, importazione pacchetto, blocco disponibilità, completamento, approvazione, rettifica, annullamento, rinnovo ed esportazione CSV. Queste prove non alterano i quattro clienti della demo.
+Con Playwright e Chrome disponibili:
 
-## Limiti della demo
+```powershell
+node tests/browser.mjs
+node tests/browser-accounts.mjs
+```
 
-Un solo responsabile locale, senza account, password o separazione di ruoli. L’autore dello storico è sempre “Responsabile locale”; questo non costituisce identificazione personale o audit certificato. Chi ha accesso al computer e al database può modificarli. Non esporre questa demo su Internet o su una rete condivisa senza una successiva fase di autenticazione, autorizzazione e messa in sicurezza.
+È possibile passare come primo argomento il percorso del modulo `playwright/index.mjs`. Le prove browser usano la porta 3138 e database temporanei; le schermate e il PDF dimostrativo vengono salvati in `test-results/`, esclusa da Git.
 
-Nessun collegamento a pagamenti, email o WhatsApp reali. I quattro clienti iniziali sono fittizi e usano indirizzi example.com. L’interfaccia si adatta agli schermi mobili, ma il server ascolta solo sul computer locale: non è accessibile da altri telefoni in rete. Non sono incluse sincronizzazione cloud, tariffe/fatture, ricorrenze o modifiche della pianificazione: un appuntamento errato si annulla con motivazione e si reinserisce. Non è prevista cancellazione dello storico.
+## Fasi successive
 
-I sorgenti sono conservati con Git locale; database, dipendenze, build e credenziali sono esclusi dal repository.
+Preventivi, fatturazione elettronica, assistente AI operativo, account clienti e abbonamenti luviqAI non sono ancora implementati. Questa consegna prepara la base per più imprese e consolida i pacchetti ore. Il nome commerciale definitivo è ancora da scegliere; per ora è usato “luviqAI · Gestionale servizi”. La documentazione della prima demo è conservata in `docs/DEMO_V1.md` solo come riferimento storico.

@@ -1,0 +1,46 @@
+import {useEffect,useState,ReactNode} from 'react';
+
+export type Session={user:{id:string;tenantId:string;name:string;email:string;role:'manager'|'operator'};csrf:string};
+export async function post(path:string,input:unknown,csrf?:string) {
+  const res=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json',...(csrf?{'X-CSRF-Token':csrf}:{}),'Idempotency-Key':crypto.randomUUID()},body:JSON.stringify(input)});
+  const result=await res.json();
+  if(!res.ok)throw Error(result.error||'Operazione non riuscita.');
+  return result;
+}
+
+export function Access({children}:{children:(session:Session,logout:()=>void)=>ReactNode}) {
+  const [session,setSession]=useState<Session|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+  const [token,setToken]=useState(()=>new URLSearchParams(location.hash.slice(1)).get('reset'));
+  useEffect(()=>{fetch('/api/me').then(async r=>{if(r.ok)setSession(await r.json());else if(r.status!==401)throw Error('Server non disponibile.');}).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
+  async function logout(){try{if(session)await post('logout',{},session.csrf);}catch{}setSession(null);}
+  async function submit(e:React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();setBusy(true);setError('');
+    const form=Object.fromEntries(new FormData(e.currentTarget));
+    try {
+      if(token){await post('reset-password',{token,password:form.password});setToken(null);history.replaceState(null,'',location.pathname);setMessage('Password aggiornata. Accedi con la nuova password.');}
+      else setSession(await post('login',form));
+    }catch(e:any){setError(e.message);}finally{setBusy(false);}
+  }
+  if(loading)return <div className="auth-shell"><p>Verifica accesso…</p></div>;
+  if(session&&!token)return <>{children(session,logout)}</>;
+  return <div className="auth-shell"><div className="auth-story"><span className="brand-icon">✳</span><div className="eyebrow">UN PRODOTTO LUVIQAI</div><h1>La tua impresa.<br/>Ogni ora, al suo posto.</h1><p>Clienti, squadre e pacchetti ore in uno spazio riservato alla tua azienda.</p><div className="auth-points">◈ Dati separati per impresa<br/>◷ Saldi e attività verificabili<br/>✓ Accessi personali</div></div><section className="auth-card"><div className="eyebrow">GESTIONALE SERVIZI</div><h2>{token?'Scegli la nuova password':'Accedi al tuo spazio'}</h2><p>{token?'Il link di recupero è monouso.':'Usa il codice della tua impresa e il tuo account personale.'}</p><form onSubmit={submit}>
+    {!token&&<><label>Codice azienda<input name="slug" autoComplete="organization" required placeholder="es. my-clean"/></label><label>Email<input name="email" autoComplete="username" type="email" required/></label></>}
+    <label>{token?'Nuova password':'Password'}<input name="password" type="password" autoComplete={token?'new-password':'current-password'} required minLength={token?12:undefined} maxLength={200}/></label>
+    {error&&<div className="alert error" role="alert">{error}</div>}{message&&<div className="alert success">{message}</div>}
+    <button disabled={busy}>{busy?'Attendi…':token?'Aggiorna password':'Accedi'}</button>
+  </form><details><summary>Hai dimenticato la password?</summary><p>Chiedi al gestore dell’app un link di recupero personale. Nella prova locale il link viene generato dal comando di amministrazione e scade dopo 30 minuti; non vengono inviate email.</p></details><small>Realizzata da luviqAI · Versione riservata</small></section></div>;
+}
+
+export function Account({session,company,team,onSaved,onLogout}:{session:Session;company:any;team:any[];onSaved:()=>Promise<void>;onLogout:()=>void}) {
+  const [error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+  async function submit(e:React.FormEvent<HTMLFormElement>,action:string){
+    e.preventDefault();setBusy(true);setError('');setMessage('');const form=e.currentTarget;
+    try{await post(action,Object.fromEntries(new FormData(form)),session.csrf);if(action==='password'){onLogout();return;}await onSaved();setMessage('Modifiche salvate.');if(action==='user')form.reset();}catch(e:any){setError(e.message);}finally{setBusy(false);}
+  }
+  async function toggle(user:any){if(!confirm(`${user.active?'Disattivare':'Riattivare'} l’account di ${user.name}? Le sessioni precedenti saranno chiuse.`))return;setBusy(true);setError('');try{await post('user',{id:user.id,active:!user.active},session.csrf);await onSaved();}catch(e:any){setError(e.message);}finally{setBusy(false);}}
+  return <div className="settings">{error&&<div className="alert error" role="alert">{error}</div>}{message&&<div className="alert success">{message}</div>}
+    {session.user.role==='manager'&&<><section className="settings-card"><h2>Identità dell’impresa</h2><p>Codice di accesso: <b>{company.slug}</b>. Le modifiche riguardano soltanto questa azienda.</p><form onSubmit={e=>submit(e,'company')}><label>Nome impresa<input name="name" defaultValue={company.name} required maxLength={300}/></label><div className="form-grid"><label>Sigla o simbolo del logo<input name="logoText" defaultValue={company.logoText} required maxLength={10}/></label><label>Colore aziendale<input name="brandColor" type="color" defaultValue={company.brandColor}/></label></div><label>Indirizzo<input name="address" defaultValue={company.address}/></label><label>Email aziendale<input name="email" type="email" defaultValue={company.email}/></label><button disabled={busy}>Salva identità</button></form></section>
+    <section className="settings-card"><h2>Account della tua azienda</h2><p>I responsabili gestiscono tutti i dati aziendali. Gli operatori vedono e completano soltanto gli interventi assegnati.</p>{team.map(user=><div className="member" key={user.id}><div><b>{user.name}</b><p>{user.email} · {user.role==='manager'?'Responsabile':'Operatore'} · {user.active?'Attivo':'Disattivato'}</p></div>{user.id!==session.user.id&&<button className="secondary" disabled={busy} onClick={()=>toggle(user)}>{user.active?'Disattiva':'Riattiva'}</button>}</div>)}<details><summary>Crea un account</summary><form onSubmit={e=>submit(e,'user')}><label>Nome<input name="name" required maxLength={300}/></label><label>Email<input name="email" type="email" required/></label><label>Ruolo<select name="role"><option value="operator">Operatore</option><option value="manager">Responsabile</option></select></label><label>Password iniziale (almeno 12 caratteri)<input name="password" type="password" autoComplete="new-password" required minLength={12} maxLength={200}/></label><p>Comunica le credenziali personalmente. Non vengono inviate email.</p><button disabled={busy}>Crea account</button></form></details></section></>}
+    <section className="settings-card"><h2>La tua password</h2><p>{session.user.name} · {session.user.email}. La modifica chiude tutte le tue sessioni.</p><form onSubmit={e=>submit(e,'password')}><label>Password attuale<input name="currentPassword" type="password" autoComplete="current-password" required/></label><label>Nuova password<input name="password" type="password" autoComplete="new-password" minLength={12} maxLength={200} required/></label><button disabled={busy}>Cambia password</button></form></section>
+  </div>;
+}
