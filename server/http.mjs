@@ -10,6 +10,7 @@ import { bootstrapLocal } from './bootstrap.mjs';
 import { backupStore } from './backup.mjs';
 import {requireAdmin,platformState,switchCompany,createCompany,suspendCompany,adminProfile,resetCompanyUser} from './platform.mjs';
 import {quotePDF} from './quote-pdf.mjs';
+import {invoicePDF} from './invoice-pdf.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const production=process.env.NODE_ENV==='production';
@@ -110,6 +111,15 @@ const server=createServer(async(req,res)=>{
         return send(200,{...state,team:actor.role!=='operator'?await team(store,actor):[]});
       }
       if(req.method==='POST'&&url.pathname==='/api/user')return send(200,await manageUser(store,actor,input));
+      const invoicePdfMatch=url.pathname.match(/^\/api\/invoices\/(\d+)\/pdf$/);
+      if(req.method==='GET'&&invoicePdfMatch){
+        if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
+        const state=await snapshot(store,actor),invoice=state.invoices.find(i=>i.id===Number(invoicePdfMatch[1]));
+        if(!invoice)fail('Fattura non trovata.',404);
+        const pdf=await invoicePDF(invoice);
+        res.writeHead(200,{'Content-Type':'application/pdf','Content-Disposition':`attachment; filename="${invoice.number.replace(/[^a-zA-Z0-9-]/g,'_')}.pdf"`,'Cache-Control':'no-store','Content-Length':pdf.length});
+        return res.end(pdf);
+      }
       const pdfMatch=url.pathname.match(/^\/api\/quotes\/(\d+)\/pdf$/);
       if(req.method==='GET'&&pdfMatch){
         if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
@@ -122,7 +132,7 @@ const server=createServer(async(req,res)=>{
       if(req.method==='GET'&&url.pathname==='/api/export') {
         if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
         const state=await snapshot(store,actor),csv=[['Tipo','ID','Cliente','Dati']];
-        for(const type of ['clients','packages','interventions','audit','catalog','quotes'])for(const item of state[type])csv.push([type,item.id,item.clientId||'',JSON.stringify(item)]);
+        for(const type of ['clients','packages','interventions','audit','catalog','quotes','invoices'])for(const item of state[type])csv.push([type,item.id,item.clientId||'',JSON.stringify(item)]);
         const cell=v=>'"'+String(v).replace(/^[=+@-]/,"'$&").replaceAll('"','""')+'"';
         res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="myclean-esportazione.csv"','Cache-Control':'no-store'});
         return res.end('\ufeff'+csv.map(r=>r.map(cell).join(';')).join('\r\n'));
