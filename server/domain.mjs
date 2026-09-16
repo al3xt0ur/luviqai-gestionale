@@ -1,5 +1,5 @@
 import {normalizeLogo} from './logo.mjs';
-import {changeQuote} from './quotes.mjs';
+import {changeQuote,calculateLines,today} from './quotes.mjs';
 import { one, rows, tenantTransaction } from './storage.mjs';
 
 export class AppError extends Error {
@@ -19,6 +19,7 @@ export function required(value, max=300) {
 export const camel = record => Object.fromEntries(Object.entries(record).filter(([k])=>k!=='tenant_id').map(([k,v])=>[k.replace(/_([a-z])/g,(_,c)=>c.toUpperCase()),v]));
 const fields = {
   quotes: ['clientId','number','revision','status','issueDate','validUntil','document','net','tax','total','sourceId','created','updated'],
+  invoices: ['clientId','quoteId','number','revision','status','issueDate','dueDate','document','net','tax','total','payment','paidAt','created','updated'],
   clients: ['name','email','phone','address','archived'],
   packages: ['clientId','tier','original','initial','rule','paid','renewedFrom','created','templateId','templateRevision','description'],
   package_templates: ['name','description','minutes','rule','active','revision'],
@@ -54,10 +55,11 @@ export async function snapshotTx(tx,tenantId) {
   const audit=(await rows(tx,'SELECT * FROM audit WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel);
   const catalog=(await rows(tx,'SELECT * FROM package_templates WHERE tenant_id=$1 ORDER BY active DESC,name,id',[tenantId])).map(camel);
   const quotes=(await rows(tx,'SELECT * FROM quotes WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel);
+  const invoices=(await rows(tx,'SELECT * FROM invoices WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel);
   const mail=(await rows(tx,"SELECT quote_id,status,mode FROM mail_messages WHERE tenant_id=$1 AND kind='quote' AND status<>'cancelled' ORDER BY created DESC",[tenantId]));
   for(const q of quotes){const m=mail.find(m=>m.quote_id===q.id);q.emailStatus=m?.status||null;q.emailMode=m?.mode||null;}
   const unreadNotifications=Number((await one(tx,'SELECT count(*) AS count FROM notifications WHERE tenant_id=$1 AND read_at IS NULL',[tenantId])).count);
-  return {clients,packages,interventions,audit,catalog,quotes,unreadNotifications};
+  return {clients,packages,interventions,audit,catalog,quotes,invoices,unreadNotifications};
 }
 
 export async function snapshot(store,actor) {
@@ -68,7 +70,7 @@ export async function snapshot(store,actor) {
       state.packages=state.packages.filter(p=>state.interventions.some(i=>i.packageId===p.id));
       state.clients=state.clients.filter(c=>state.packages.some(p=>p.clientId===c.id));
       state.audit=[];
-      state.catalog=[];state.quotes=[];state.unreadNotifications=0;
+      state.catalog=[];state.quotes=[];state.invoices=[];state.unreadNotifications=0;
     }
     return {...state,company:camel(tenant)};
   });
@@ -78,7 +80,6 @@ export async function mutate(store,actor,action,input,key) {
   if(!input||Array.isArray(input)||typeof input!=='object')fail('Richiesta non valida.');
   required(key,150);
   if(!['manager','platform_admin'].includes(actor.role)&&action!=='complete')fail('Il tuo account non può eseguire questa operazione.',403);
-  // L'azienda deriva esclusivamente dalla sessione, mai dal corpo della richiesta.
   if('tenantId' in input || 'tenant_id' in input) fail('L’azienda non può essere modificata nella richiesta.',403);
   return tenantTransaction(store,actor.tenantId,async(tx,tenant)=>{
     if(!tenant.active&&actor.role!=='platform_admin')fail('Azienda sospesa.',403);
@@ -98,8 +99,7 @@ export async function mutate(store,actor,action,input,key) {
       const value={name:required(input.name),email:String(input.email||'').trim(),phone:String(input.phone||'').trim(),address:String(input.address||'').trim()};
       if(Object.values(value).some(v=>v.length>500))fail('Uno dei campi è troppo lungo.');
       if(value.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.email))fail('Indirizzo email non valido.');
-      if(input.id){before=getC(input.id);after=await update(tx,t,'clients',before.id,value);}
-      else after=await insert(tx,t,'clients',value);
+      if(input.id){before=getC(input.id);after=await update(tx,t,'clients',before.id,value);} else after=await insert(tx,t,'clients',value);
       clientId=after.id;
     } else if(action==='archive'||action==='restore') {
       before=getC(input.id);clientId=before.id;required(reason,2000);
@@ -124,8 +124,7 @@ export async function mutate(store,actor,action,input,key) {
         if(state.catalog.some(p=>p.id!==before?.id&&p.name.toLocaleLowerCase()===name.toLocaleLowerCase()))fail('Esiste già un modello con questo nome, anche tra quelli disattivati.');
         const description=String(input.description||'').trim();if(description.length>1000)fail('La descrizione non può superare 1000 caratteri.');
         const value={name,minutes,rule:input.rule,description,revision:before?before.revision+1:1};
-        if(before){required(reason,2000);after=await update(tx,t,'package_templates',before.id,value);}
-        else after=await insert(tx,t,'package_templates',value);
+        if(before){required(reason,2000);after=await update(tx,t,'package_templates',before.id,value);} else after=await insert(tx,t,'package_templates',value);
       }
     } else if(action==='package') {
       clientId=integer(input.clientId,1,1e9);active(getC(clientId));
@@ -147,7 +146,6 @@ export async function mutate(store,actor,action,input,key) {
       if(!['planned','pending'].includes(input.status))fail('Stato non valido.');
       if(input.status==='pending'&&date.getTime()>Date.now())fail('Un intervento futuro può essere solo pianificato.');
       if(duration*(p.rule==='operator'?operators:1)>p.free)fail('Ore libere insufficienti per questo intervento.');
-      // L'assegnazione viene validata dal server prima della transazione e dal vincolo composto.
       if(input.assignedUserId&&!actor.assignableUserIds?.includes(input.assignedUserId))fail('Operatore non disponibile per questa azienda.');
       after=await insert(tx,t,'interventions',{packageId:p.id,date:date.toISOString(),service:required(input.service),team:required(input.team),duration,operators,notes:String(input.notes||'').slice(0,3000),status:input.status,assignedUserId:input.assignedUserId||null});
       interventionId=after.id;
@@ -175,6 +173,34 @@ export async function mutate(store,actor,action,input,key) {
           if(duration*(p.rule==='operator'?operators:1)>p.free+before.cost)fail('Ore libere insufficienti per la nuova durata e il numero di operatori.');
           after=await update(tx,t,'interventions',before.id,{duration,operators,status:action==='complete'?'pending':'approved'});
         }
+      }
+    } else if(action==='invoice'||action==='invoice-status'||action==='invoice-payment') {
+      const invoiceDay=value=>{if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value)fail('Data fattura non valida.');return value;};
+      before=input.id?state.invoices.find(i=>i.id===Number(input.id))||fail('Fattura non trovata.',404):null;
+      if(before&&integer(input.revision,1,1e9)!==before.revision)fail('La fattura è stata modificata. Ricarica i dati prima di continuare.',409);
+      const now=new Date().toISOString();
+      if(action==='invoice') {
+        if(before&&before.status!=='draft')fail('Solo le fatture in bozza sono modificabili.');
+        clientId=integer(input.clientId,1,1e9);const client=getC(clientId);active(client);
+        const issueDate=invoiceDay(input.issueDate),dueDate=invoiceDay(input.dueDate);if(dueDate<issueDate)fail('La scadenza non può precedere la data di emissione.');
+        const {lines,net,tax,total}=calculateLines(input.lines);
+        const title=required(input.title,200),notes=String(input.notes||'').trim();if(notes.length>2000)fail('Le note possono contenere al massimo 2000 caratteri.');
+        let quote=null;
+        if(input.quoteId){quote=state.quotes.find(q=>q.id===Number(input.quoteId))||fail('Preventivo non trovato.',404);if(quote.clientId!==clientId||quote.status!=='accepted')fail('La fattura può essere collegata solo a un preventivo accettato dello stesso cliente.');if(state.invoices.some(i=>i.quoteId===quote.id&&i.id!==before?.id&&i.status!=='cancelled'))fail('Esiste già una fattura attiva collegata a questo preventivo.');}
+        const document=JSON.stringify({title,notes,lines,client,company:camel(tenant)});
+        const value={clientId,quoteId:quote?.id||null,issueDate,dueDate,document,net,tax,total,updated:now,revision:before?before.revision+1:1};
+        if(before){required(reason,2000);after=await update(tx,t,'invoices',before.id,value);}else{const id=(await one(tx,'SELECT coalesce(max(id),0)+1 AS id FROM invoices WHERE tenant_id=$1',[t])).id;after=await insert(tx,t,'invoices',{...value,number:`FAT-${issueDate.slice(0,4)}-${String(id).padStart(4,'0')}`,status:'draft',payment:JSON.stringify({}),paidAt:null,created:now},id);}
+      } else if(action==='invoice-status') {
+        if(!before)fail('Fattura non trovata.',404);required(reason,2000);
+        const allowed=before.status==='draft'?['issued','cancelled']:before.status==='issued'?['cancelled']:[];
+        if(!allowed.includes(input.status))fail('Passaggio di stato fattura non consentito.');
+        if(input.status==='issued'&&before.issueDate>today())fail('Non puoi emettere una fattura con data futura.');
+        after=await update(tx,t,'invoices',before.id,{status:input.status,revision:before.revision+1,updated:now});clientId=before.clientId;
+      } else {
+        if(!before||before.status!=='issued')fail('Puoi registrare il pagamento solo su una fattura emessa.');
+        const paymentDate=invoiceDay(input.paymentDate);if(paymentDate>today())fail('La data del pagamento non può essere futura.');
+        const method=required(input.method,80),reference=String(input.reference||'').trim();if(reference.length>300)fail('Riferimento pagamento troppo lungo.');
+        after=await update(tx,t,'invoices',before.id,{status:'paid',revision:before.revision+1,payment:JSON.stringify({date:paymentDate,method,reference}),paidAt:new Date(paymentDate+'T12:00:00Z').toISOString(),updated:now});clientId=before.clientId;
       }
     } else if(action==='company') {
       const name=required(input.name),logoText=required(input.logoText,10),color=required(input.brandColor,7);
