@@ -34,7 +34,8 @@ test('HTTP autenticato: isolamento, CSRF, duplicati concorrenti, cookie, export 
     assert.equal(JSON.parse((await get('state',b)).text).clients.length,0);
     assert.equal((await request('client',{id:c.body.value.id,name:'Attacco'},b)).status,404);
     assert.equal((await request('client',{name:'Attacco',tenantId:authA.body.user.tenantId},b)).status,403);
-    const p=(await request('package',{clientId:c.body.value.id,tier:'Star',initial:120,rule:'team',paid:true},a)).body.value;
+    const model=(await request('template',{name:'Offerta HTTP',minutes:1200,rule:'team'},a)).body.value;
+    const p=(await request('package',{clientId:c.body.value.id,templateId:model.id,templateRevision:model.revision,initial:120,paid:true},a)).body.value;
     const item={packageId:p.id,date:new Date(Date.now()-10000).toISOString(),duration:120,operators:2,status:'pending',service:'Test',team:'T'};
     const attempts=await Promise.all(Array.from({length:6},()=>request('intervention',item,a)));
     assert.equal(attempts.filter(r=>r.status===200).length,1);assert.equal(attempts.filter(r=>r.status===400).length,5);

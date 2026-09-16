@@ -3,6 +3,7 @@ import pg from 'pg';
 import { readFile } from 'node:fs/promises';
 import {mkdirSync,openSync,writeFileSync,readFileSync,closeSync,unlinkSync} from 'node:fs';
 import {dirname} from 'node:path';
+import {importPackageCatalog} from './catalog.mjs';
 
 export async function connectStore({ url, path } = {}) {
   if (url) {
@@ -55,6 +56,10 @@ export async function migrate(store) {
     await tx.query('SELECT pg_advisory_xact_lock(736281)');
     for (const statement of sql.split('-- next')) {
       if (statement.trim()) await tx.query(statement);
+    }
+    if(!(await one(tx,'SELECT version FROM schema_version WHERE version=3'))) {
+      await importPackageCatalog(tx);
+      await tx.query('INSERT INTO schema_version(version) VALUES(3)');
     }
   });
 }

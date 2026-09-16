@@ -17,7 +17,8 @@ export function required(value, max=300) {
 export const camel = record => Object.fromEntries(Object.entries(record).filter(([k])=>k!=='tenant_id').map(([k,v])=>[k.replace(/_([a-z])/g,(_,c)=>c.toUpperCase()),v]));
 const fields = {
   clients: ['name','email','phone','address','archived'],
-  packages: ['clientId','tier','original','initial','rule','paid','renewedFrom','created'],
+  packages: ['clientId','tier','original','initial','rule','paid','renewedFrom','created','templateId','templateRevision','description'],
+  package_templates: ['name','description','minutes','rule','active','revision'],
   interventions: ['packageId','date','service','team','duration','operators','notes','status','assignedUserId'],
   audit: ['date','author','authorId','action','clientId','interventionId','beforeValue','afterValue','reason'],
 };
@@ -48,7 +49,8 @@ export async function snapshotTx(tx,tenantId) {
     return {...p,consumed,committed,remaining:p.initial-consumed,free:p.initial-consumed-committed};
   });
   const audit=(await rows(tx,'SELECT * FROM audit WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel);
-  return {clients,packages,interventions,audit};
+  const catalog=(await rows(tx,'SELECT * FROM package_templates WHERE tenant_id=$1 ORDER BY active DESC,name,id',[tenantId])).map(camel);
+  return {clients,packages,interventions,audit,catalog};
 }
 
 export async function snapshot(store,actor) {
@@ -59,6 +61,7 @@ export async function snapshot(store,actor) {
       state.packages=state.packages.filter(p=>state.interventions.some(i=>i.packageId===p.id));
       state.clients=state.clients.filter(c=>state.packages.some(p=>p.clientId===c.id));
       state.audit=[];
+      state.catalog=[];
     }
     return {...state,company:camel(tenant)};
   });
@@ -96,13 +99,34 @@ export async function mutate(store,actor,action,input,key) {
         if(state.packages.some(p=>p.clientId===clientId&&p.remaining>0)||state.interventions.some(i=>i.clientId===clientId&&['planned','pending'].includes(i.status)))fail('Il cliente ha ore residue o interventi aperti. Completa la gestione prima di archiviarlo.');
       } else if(!before.archived)fail('Il cliente è già attivo.');
       after=await update(tx,t,'clients',clientId,{archived:action==='archive'});
+    } else if(action==='template'||action==='template-status') {
+      if(input.id) {
+        before=state.catalog.find(p=>p.id===Number(input.id))||fail('Modello non trovato.',404);
+        if(integer(input.revision,1,1e9)!==before.revision)fail('Il modello è stato modificato. Chiudi e riapri il catalogo per aggiornare i dati.',409);
+      }
+      if(action==='template-status') {
+        if(!before||typeof input.active!=='boolean')fail('Stato del modello non valido.');
+        required(reason,2000);
+        if(input.active===before.active)fail('Il modello ha già questo stato.');
+        after=await update(tx,t,'package_templates',before.id,{active:input.active,revision:before.revision+1});
+      } else {
+        const name=required(input.name,120),minutes=integer(input.minutes,1,600000);
+        if(!['operator','team'].includes(input.rule))fail('Regola di conteggio non valida.');
+        if(state.catalog.some(p=>p.id!==before?.id&&p.name.toLocaleLowerCase()===name.toLocaleLowerCase()))fail('Esiste già un modello con questo nome, anche tra quelli disattivati.');
+        const description=String(input.description||'').trim();if(description.length>1000)fail('La descrizione non può superare 1000 caratteri.');
+        const value={name,minutes,rule:input.rule,description,revision:before?before.revision+1:1};
+        if(before){required(reason,2000);after=await update(tx,t,'package_templates',before.id,value);}
+        else after=await insert(tx,t,'package_templates',value);
+      }
     } else if(action==='package') {
       clientId=integer(input.clientId,1,1e9);active(getC(clientId));
-      const original={Star:1200,Love:2400,Luxury:3600}[input.tier];if(!original)fail('Taglio non valido.');
-      const initial=integer(input.initial,0,original);if(!['operator','team'].includes(input.rule))fail('Regola di conteggio non valida.');
+      const template=state.catalog.find(p=>p.id===Number(input.templateId))||fail('Seleziona un modello del catalogo aziendale.');
+      if(!template.active)fail('Il modello è disattivato. Seleziona un’offerta attiva.');
+      if(integer(input.templateRevision,1,1e9)!==template.revision)fail('Il modello è cambiato. Chiudi e riapri il modulo per verificare le nuove condizioni.',409);
+      const original=template.minutes,initial=integer(input.initial,0,original);
       const previous=input.renewedFrom?getP(input.renewedFrom):null;
       if(previous&&previous.clientId!==clientId)fail('Il rinnovo deve appartenere allo stesso cliente.');
-      after=await insert(tx,t,'packages',{clientId,tier:input.tier,original,initial,rule:input.rule,paid:input.paid===true?1:0,renewedFrom:previous?.id||null,created:new Date().toISOString()});
+      after=await insert(tx,t,'packages',{clientId,tier:template.name,original,initial,rule:template.rule,description:template.description,templateId:template.id,templateRevision:template.revision,paid:input.paid===true?1:0,renewedFrom:previous?.id||null,created:new Date().toISOString()});
     } else if(action==='pay') {
       before=getP(input.id);clientId=before.clientId;active(getC(clientId));if(before.paid)fail('Pagamento già confermato.');
       after=await update(tx,t,'packages',before.id,{paid:1});

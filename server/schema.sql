@@ -139,3 +139,34 @@ CREATE TABLE IF NOT EXISTS platform_audit (
   details jsonb NOT NULL
 )
 
+-- next
+CREATE TABLE IF NOT EXISTS package_templates (
+  tenant_id text NOT NULL REFERENCES tenants(id), id integer NOT NULL,
+  name text NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 120),
+  description text NOT NULL DEFAULT '',
+  minutes integer NOT NULL CHECK(minutes BETWEEN 1 AND 600000),
+  rule text NOT NULL CHECK(rule IN ('operator','team')),
+  active boolean NOT NULL DEFAULT true,
+  revision integer NOT NULL DEFAULT 1 CHECK(revision>0),
+  PRIMARY KEY(tenant_id,id)
+)
+-- next
+CREATE UNIQUE INDEX IF NOT EXISTS package_templates_name ON package_templates(tenant_id,lower(name))
+-- next
+GRANT SELECT,INSERT,UPDATE ON package_templates TO luviq_tenant
+-- next
+DO $$ BEGIN
+  ALTER TABLE package_templates ENABLE ROW LEVEL SECURITY;
+  IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='package_templates' AND policyname='tenant_isolation') THEN
+    CREATE POLICY tenant_isolation ON package_templates TO luviq_tenant USING(tenant_id=current_setting('app.tenant_id',true)) WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+  END IF;
+  IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=3) THEN
+    ALTER TABLE packages DROP CONSTRAINT packages_tier_check;
+    ALTER TABLE packages DROP CONSTRAINT packages_original_check;
+    ALTER TABLE packages ADD CONSTRAINT packages_original_check CHECK(original>0);
+    ALTER TABLE packages ADD COLUMN template_id integer;
+    ALTER TABLE packages ADD COLUMN template_revision integer;
+    ALTER TABLE packages ADD COLUMN description text NOT NULL DEFAULT '';
+    ALTER TABLE packages ADD CONSTRAINT packages_template_fk FOREIGN KEY(tenant_id,template_id) REFERENCES package_templates(tenant_id,id);
+  END IF;
+END $$

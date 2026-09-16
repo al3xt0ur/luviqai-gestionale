@@ -59,6 +59,18 @@ Per una nuova installazione, a server locale fermo: `node scripts/admins.mjs`. I
 7. Uscire e accedere a impresa-demo: nessun dato di My Clean è visibile. Provare a personalizzare la seconda impresa.
 8. Stampare una scheda cliente oppure esportare il CSV: contiene solo i dati della propria impresa.
 
+## Catalogo pacchetti configurabile
+
+Aprire **Pacchetti ore → Configura catalogo → Nuovo modello**. Ogni impresa gestisce il proprio catalogo, senza nomi o tagli obbligatori: nome, descrizione, ore intere e minuti aggiuntivi, conteggio per operatore o squadra. Quantità da 1 minuto a 10.000 ore. Le nuove imprese partono con il catalogo vuoto; My Clean conserva le offerte ricavate dai suoi pacchetti precedenti. Se lo stesso nome aveva più regole o tagli, vengono creati modelli distinti con una specificazione nel nome, modificabile.
+
+Per assegnare un pacchetto, tornare a **Pacchetti assegnati → Nuovo pacchetto**, scegliere cliente e modello, eventuale saldo iniziale ridotto e conferma del pagamento. Nome, descrizione, taglio e regola vengono copiati nel pacchetto e rimangono immutabili. Modificare il catalogo non ricalcola disponibilità, interventi o saldi dei pacchetti già venduti.
+
+Le modifiche e la disattivazione/riattivazione richiedono una motivazione, registrata con autore e valori precedenti/nuovi nello storico. I modelli disattivati non sono selezionabili per nuove assegnazioni o rinnovi; i pacchetti già assegnati restano utilizzabili. Il rinnovo crea un nuovo pacchetto alle condizioni attuali del modello selezionato, mostrate nel modulo, e conserva il precedente. Se il vecchio modello è disattivato, occorre sceglierne esplicitamente un altro.
+
+Il server valida la versione del modello: una modifica concorrente impedisce di assegnare condizioni superate. Chiudere e riaprire il modulo dopo il messaggio per controllare i dati aggiornati. Responsabili e amministratori luviqAI possono configurare il catalogo; gli operatori non possono farlo. Il catalogo è incluso in backup e CSV e protetto dalle stesse regole di isolamento delle imprese. I backup precedenti al catalogo restano ripristinabili: i modelli vengono ricavati dai pacchetti restaurati.
+
+Questa configurazione riguarda i pacchetti di ore venduti dalle imprese ai propri clienti. Prezzi, IVA, fatturazione e abbonamenti mensili alla piattaforma saranno gestiti nelle rispettive fasi successive.
+
 ## Database e migrazione
 
 - Database corrente: **`data/postgres/`**. Contiene dati di tutte le imprese e credenziali con hash.
@@ -126,7 +138,7 @@ npm.cmd test
 npm.cmd run build
 ```
 
-La suite comprende regressioni SQLite per l’importazione e test PostgreSQL/PGlite di isolamento RLS, saldi, richieste concorrenti, ruoli, sessioni, recupero password, archiviazione e backup/ripristino. Il test HTTP verifica un riavvio reale sulla porta 3137.
+La suite comprende regressioni SQLite per l’importazione e test PostgreSQL/PGlite di isolamento RLS, saldi, richieste concorrenti, ruoli, sessioni, recupero password, archiviazione, catalogo personalizzato, versioni concorrenti, disattivazione, rinnovi e backup/ripristino. Il test HTTP verifica un riavvio reale sulla porta 3137.
 
 Con Playwright e Chrome disponibili:
 

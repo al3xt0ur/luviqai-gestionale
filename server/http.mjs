@@ -93,7 +93,7 @@ const server=createServer(async(req,res)=>{
       if(req.method==='GET'&&url.pathname==='/api/export') {
         if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
         const state=await snapshot(store,actor),csv=[['Tipo','ID','Cliente','Dati']];
-        for(const type of ['clients','packages','interventions','audit'])for(const item of state[type])csv.push([type,item.id,item.clientId||'',JSON.stringify(item)]);
+        for(const type of ['clients','packages','interventions','audit','catalog'])for(const item of state[type])csv.push([type,item.id,item.clientId||'',JSON.stringify(item)]);
         const cell=v=>'"'+String(v).replace(/^[=+@-]/,"'$&").replaceAll('"','""')+'"';
         res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="myclean-esportazione.csv"','Cache-Control':'no-store'});
         return res.end('\ufeff'+csv.map(r=>r.map(cell).join(';')).join('\r\n'));

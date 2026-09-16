@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { one } from './storage.mjs';
 import { provision, secret, manageUser } from './auth.mjs';
 import { insert } from './domain.mjs';
+import {importPackageCatalog} from './catalog.mjs';
 
 export async function importLegacy(store,tenantId,path) {
   if(!existsSync(path))return false;
@@ -18,6 +19,7 @@ export async function importLegacy(store,tenantId,path) {
     if(await one(tx,'SELECT * FROM imports WHERE source=$1',['sqlite-v1']))return;
     if(Number((await one(tx,'SELECT count(*) AS n FROM clients WHERE tenant_id=$1',[tenantId])).n)!==0)throw Error('Importazione consentita solo in un’azienda vuota.');
     for(const [table,list] of Object.entries(records))for(const record of list)await insert(tx,tenantId,table,record,record.id);
+    await importPackageCatalog(tx);
     await tx.query('INSERT INTO imports VALUES($1,$2,$3)',['sqlite-v1',tenantId,new Date().toISOString()]);
   });
   return true;

@@ -40,7 +40,8 @@ test('PostgreSQL: autenticazione, isolamento RLS, saldi, ruoli, recupero e migra
       await assert.rejects(run(b,'client',{id:onlyA.id,name:'Rubato'}),/non trovato/);
     });
     await t.test('approvazioni concorrenti e idempotenza conservano il saldo',async()=>{
-      pkg=(await run(a,'package',{clientId:client.id,tier:'Star',initial:300,rule:'operator',paid:true})).value;
+      const model=(await run(a,'template',{name:'Offerta A',minutes:1200,rule:'operator'})).value;
+      pkg=(await run(a,'package',{clientId:client.id,templateId:model.id,templateRevision:model.revision,initial:300,paid:true})).value;
       job=(await run(a,'intervention',{packageId:pkg.id,date:new Date(Date.now()-86400000).toISOString(),duration:60,operators:2,service:'Pulizia',team:'Squadra',status:'pending'})).value;
       assert.equal((await snapshot(db,a)).packages[0].free,180);
       const all=await Promise.all(Array.from({length:10},()=>run(a,'approve',{id:job.id},'same-key')));
