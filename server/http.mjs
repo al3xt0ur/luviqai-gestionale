@@ -1,3 +1,4 @@
+import {mailConfig,queueQuote,mailState,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
@@ -18,6 +19,10 @@ if(production&&(!process.env.DATABASE_URL||!origin.startsWith('https://')))throw
 const dataDir=resolve(root,'data');
 const store=await connectStore({url:process.env.DATABASE_URL,path:process.env.PGLITE_PATH||resolve(dataDir,'postgres')});
 await migrate(store);
+const mailSettings=mailConfig(process.env,origin);
+let mailWorking=false;
+async function mailTick(){if(mailWorking)return;mailWorking=true;try{await store.query("UPDATE mail_messages SET status='uncertain',error='Invio interrotto: verificare la casella del mittente.' WHERE status='sending' AND updated<$1",[new Date(Date.now()-120000).toISOString()]);for(let n=0;n<5&&await dispatchOne(store,mailSettings);n++);}catch(error){console.error('Elaborazione email non riuscita:',error.code||error.name);}finally{mailWorking=false;}}
+const mailTimer=setInterval(()=>void mailTick(),2000);mailTimer.unref();
 if(!production&&!process.env.DATABASE_URL&&process.env.BOOTSTRAP_DEMO!=='0')await bootstrapLocal(store,dataDir,resolve(dataDir,'myclean.sqlite'));
 let backupTimer;
 if(process.env.BOOTSTRAP_DEMO!=='0') {
@@ -44,7 +49,7 @@ const server=createServer(async(req,res)=>{
       if(req.headers['sec-fetch-site']==='cross-site')fail('Origine non consentita.',403);
       if(!req.headers['content-type']?.startsWith('application/json'))fail('Formato richiesta non valido.',415);
       let body='';
-      for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>100000)fail('Richiesta troppo grande.',413);}
+      for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>(url.pathname==='/api/company'?800000:100000))fail('Richiesta troppo grande.',413);}
       try {input=JSON.parse(body);}catch{fail('Richiesta non valida.');}
       if(!input||Array.isArray(input)||typeof input!=='object')fail('Richiesta non valida.');
     }
@@ -56,6 +61,14 @@ const server=createServer(async(req,res)=>{
     if(req.method==='POST'&&url.pathname==='/api/reset-password') {
       await resetPassword(store,input);res.setHeader('Set-Cookie',cookie('',true));return send(200,{ok:true});
     }
+    const publicMatch=url.pathname.match(/^\/api\/public\/quotes\/([A-Za-z0-9_-]{43})(\/pdf)?$/);
+    if(publicMatch){
+      if(req.method==='GET'&&publicMatch[2]){const pdf=await publicPDF(store,publicMatch[1]);res.writeHead(200,{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="preventivo.pdf"','Cache-Control':'no-store'});return res.end(pdf);}
+      if(req.method==='GET')return send(200,await publicQuote(store,publicMatch[1]));
+      if(req.method==='POST'&&!publicMatch[2])return send(200,await respondQuote(store,publicMatch[1],input,mailSettings));
+      fail('Risorsa non trovata.',404);
+    }
+    if(url.pathname.startsWith('/api/public/quotes/'))fail('Collegamento non valido o scaduto.',404);
     if(url.pathname.startsWith('/api/')) {
       const actor=await authenticate(store,req.headers.cookie);
       if(!actor)fail('Accedi per continuare.',401);
@@ -86,6 +99,12 @@ const server=createServer(async(req,res)=>{
         const context=req.headers['x-tenant-context']||url.searchParams.get('company');
         if(actor.tenantId===actor.homeTenantId||context!==actor.tenantId)fail('Seleziona l’azienda dal pannello amministrativo. Se hai cambiato azienda in un’altra scheda, ricarica questa pagina.',409);
       }
+      if(req.method==='POST'&&url.pathname==='/api/quote-email')return send(200,await queueQuote(store,actor,input,req.headers['idempotency-key'],mailSettings));
+      if(req.method==='GET'&&url.pathname==='/api/mail')return send(200,await mailState(store,actor,mailSettings));
+      if(req.method==='POST'&&url.pathname==='/api/notification-read')return send(200,await readNotification(store,actor,input.id));
+      if(req.method==='POST'&&url.pathname==='/api/mail-cancel')return send(200,await cancelAttempt(store,actor,input));
+      const messageMatch=url.pathname.match(/^\/api\/mail\/([a-f0-9-]{36})(\/eml)?$/);
+      if(req.method==='GET'&&messageMatch){if(messageMatch[2]){const eml=await messageEML(store,actor,messageMatch[1],mailSettings);res.writeHead(200,{'Content-Type':'message/rfc822','Content-Disposition':'attachment; filename="email-preventivo.eml"','Cache-Control':'no-store'});return res.end(eml);}return send(200,await messageDetail(store,actor,messageMatch[1]));}
       if(req.method==='GET'&&url.pathname==='/api/state') {
         const state=await snapshot(store,actor);
         return send(200,{...state,team:actor.role!=='operator'?await team(store,actor):[]});
@@ -129,4 +148,4 @@ const server=createServer(async(req,res)=>{
   }
 });
 server.listen(port,production?'0.0.0.0':'127.0.0.1',()=>console.log(`luviqAI · Gestionale servizi — ${origin} — ${store.kind}`));
-for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{clearInterval(backupTimer);server.close(async()=>{await store.close();process.exit(0);});});
+for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{clearInterval(backupTimer);clearInterval(mailTimer);server.close(async()=>{await store.close();process.exit(0);});});

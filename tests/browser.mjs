@@ -11,7 +11,7 @@ const dir=mkdtempSync(join(tmpdir(),'myclean-browser-'));
 const {connectStore,migrate}=await import('../server/storage.mjs');
 const {provision}=await import('../server/auth.mjs');
 const testStore=await connectStore({path:join(dir,'pg')});await migrate(testStore);await provision(testStore,{slug:'test-azienda',name:'Impresa test',email:'admin@example.com',password:'Password-browser-2026!'});await provision(testStore,{slug:'altra-azienda',name:'Altra impresa',email:'admin@example.com',password:'Password-browser-2026!'});await testStore.close();
-const child=spawn(process.execPath,['server/index.mjs'],{env:{...process.env,PORT:'3138',PGLITE_PATH:join(dir,'pg'),BOOTSTRAP_DEMO:'0'},stdio:['ignore','pipe','pipe']});
+const child=spawn(process.execPath,['server/index.mjs'],{env:{...process.env,PORT:'3138',PGLITE_PATH:join(dir,'pg'),BOOTSTRAP_DEMO:'0',MAIL_MODE:'preview',PUBLIC_APP_URL:'http://localhost:3138'},stdio:['ignore','pipe','pipe']});
 let browser;
 try{
 await once(child.stdout,'data');browser=await chromium.launch({channel:'chrome',headless:true});

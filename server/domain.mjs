@@ -1,3 +1,4 @@
+import {normalizeLogo} from './logo.mjs';
 import {changeQuote} from './quotes.mjs';
 import { one, rows, tenantTransaction } from './storage.mjs';
 
@@ -53,7 +54,10 @@ export async function snapshotTx(tx,tenantId) {
   const audit=(await rows(tx,'SELECT * FROM audit WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel);
   const catalog=(await rows(tx,'SELECT * FROM package_templates WHERE tenant_id=$1 ORDER BY active DESC,name,id',[tenantId])).map(camel);
   const quotes=(await rows(tx,'SELECT * FROM quotes WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel);
-  return {clients,packages,interventions,audit,catalog,quotes};
+  const mail=(await rows(tx,"SELECT quote_id,status,mode FROM mail_messages WHERE tenant_id=$1 AND kind='quote' AND status<>'cancelled' ORDER BY created DESC",[tenantId]));
+  for(const q of quotes){const m=mail.find(m=>m.quote_id===q.id);q.emailStatus=m?.status||null;q.emailMode=m?.mode||null;}
+  const unreadNotifications=Number((await one(tx,'SELECT count(*) AS count FROM notifications WHERE tenant_id=$1 AND read_at IS NULL',[tenantId])).count);
+  return {clients,packages,interventions,audit,catalog,quotes,unreadNotifications};
 }
 
 export async function snapshot(store,actor) {
@@ -64,7 +68,7 @@ export async function snapshot(store,actor) {
       state.packages=state.packages.filter(p=>state.interventions.some(i=>i.packageId===p.id));
       state.clients=state.clients.filter(c=>state.packages.some(p=>p.clientId===c.id));
       state.audit=[];
-      state.catalog=[];state.quotes=[];
+      state.catalog=[];state.quotes=[];state.unreadNotifications=0;
     }
     return {...state,company:camel(tenant)};
   });
@@ -176,8 +180,11 @@ export async function mutate(store,actor,action,input,key) {
       const name=required(input.name),logoText=required(input.logoText,10),color=required(input.brandColor,7);
       if(!/^#[0-9a-f]{6}$/i.test(color))fail('Colore non valido.');
       const address=String(input.address||'').slice(0,500),email=String(input.email||'').slice(0,300);
+      const logoData=input.logoData===undefined?tenant.logo_data:await normalizeLogo(input.logoData);
+      const phone=String(input.phone??tenant.phone).trim(),website=String(input.website??tenant.website).trim(),taxId=String(input.taxId??tenant.tax_id).trim();
+      if(phone.length>80||website.length>200||taxId.length>100)fail('Recapiti aziendali troppo lunghi.');
       before=camel(tenant);
-      after=camel(await one(tx,'UPDATE tenants SET name=$2,logo_text=$3,brand_color=$4,address=$5,email=$6 WHERE id=$1 RETURNING *',[t,name,logoText,color,address,email]));
+      after=camel(await one(tx,'UPDATE tenants SET name=$2,logo_text=$3,brand_color=$4,address=$5,email=$6,logo_data=$7,phone=$8,website=$9,tax_id=$10 WHERE id=$1 RETURNING *',[t,name,logoText,color,address,email,logoData,phone,website,taxId]));
     } else fail('Operazione sconosciuta.');
     await insert(tx,t,'audit',{date:new Date().toISOString(),author:actor.name,authorId:actor.id,action,clientId,interventionId,beforeValue:JSON.stringify(before),afterValue:JSON.stringify(after),reason});
     const result={ok:true,value:after};

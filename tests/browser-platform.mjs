@@ -13,7 +13,7 @@ const dir=mkdtempSync(join(tmpdir(),'luviq-platform-ui-')),password='Browser-pla
 const store=await connectStore({path:join(dir,'pg')});await migrate(store);
 for(const slug of ['prima','seconda'])await provision(store,{slug,name:'Impresa '+slug,email:'manager@example.com',password});
 await provisionAdmins(store,[{name:'Admin Uno',email:'one@example.com',password},{name:'Admin Due',email:'two@example.com',password}]);await store.close();
-const child=spawn(process.execPath,['server/index.mjs'],{env:{...process.env,PORT:'3138',PGLITE_PATH:join(dir,'pg'),BOOTSTRAP_DEMO:'0'},stdio:['ignore','pipe','pipe']});let browser;
+const child=spawn(process.execPath,['server/index.mjs'],{env:{...process.env,PORT:'3138',PGLITE_PATH:join(dir,'pg'),BOOTSTRAP_DEMO:'0',MAIL_MODE:'preview',PUBLIC_APP_URL:'http://localhost:3138'},stdio:['ignore','pipe','pipe']});let browser;
 try{
   await once(child.stdout,'data');browser=await chromium.launch({channel:'chrome',headless:true});
   const page=await browser.newPage({viewport:{width:1440,height:1000},locale:'it-IT'});page.setDefaultTimeout(10000);

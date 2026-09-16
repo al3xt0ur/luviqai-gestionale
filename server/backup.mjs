@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {one,rows} from './storage.mjs';
 import {importPackageCatalog} from './catalog.mjs';
 
-const tables=['tenants','users','clients','package_templates','packages','quotes','interventions','audit','requests','imports','platform_audit'];
+const tables=['tenants','users','clients','package_templates','packages','quotes','mail_messages','quote_links','notifications','interventions','audit','requests','imports','platform_audit'];
 const checksum=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 export async function backupStore(store,path) {
@@ -26,6 +26,7 @@ export async function restoreStore(store,path) {
   // I backup della versione 1 precedente al pannello admin non contenevano questo registro.
   if(backup.data.platform_audit===undefined)backup.data.platform_audit=[];
   if(backup.data.quotes===undefined)backup.data.quotes=[];
+  for(const name of ['mail_messages','quote_links','notifications'])if(backup.data[name]===undefined)backup.data[name]=[];
   const legacyCatalog=backup.data.package_templates===undefined;
   if(legacyCatalog)backup.data.package_templates=[];
   for(const table of tables)if(!Array.isArray(backup.data[table]))throw Error('Backup incompleto.');
@@ -39,6 +40,8 @@ export async function restoreStore(store,path) {
       }
     }
     if(legacyCatalog)await importPackageCatalog(tx);
+    // Il ripristino non deve inviare email rimaste in coda nel backup.
+    await tx.query("UPDATE mail_messages SET status='uncertain',error='Tentativo recuperato da backup: verificare prima di riprovare.' WHERE status IN ('queued','sending')");
   });
   return {ok:true};
 }

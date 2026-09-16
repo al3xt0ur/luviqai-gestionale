@@ -19,6 +19,7 @@ export function calculateLines(items){
 export async function changeQuote({tx,t,state,input,action,tenant,insert,update}){
   let before=null,after;
   if(input.id){before=state.quotes.find(q=>q.id===Number(input.id))||fail('Preventivo non trovato.',404);if(integer(input.revision,1,1e9)!==before.revision)fail('Il preventivo è stato modificato. Ricarica i dati prima di continuare.',409);}
+  if(before&&await one(tx,"SELECT id FROM mail_messages WHERE tenant_id=$1 AND quote_id=$2 AND kind='quote' AND status IN ('queued','sending','uncertain')",[t,before.id]))fail('Invio email in corso o da verificare. Controlla Email e notifiche prima di modificare il preventivo.');
   const now=new Date().toISOString();
   if(action==='quote'){
     if(before&&before.status!=='draft')fail('Solo le bozze sono modificabili. Duplica il preventivo per preparare una nuova proposta.');

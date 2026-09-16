@@ -32,7 +32,7 @@ Da **Azienda e account** il responsabile può modificare nome, colore, sigla del
 
 ### Amministratori luviqAI
 
-Sono disponibili due account personali di **amministratore della piattaforma**, separati dai responsabili delle imprese. Per accedere usare codice **`luviqai`**, la propria email e la password iniziale nel file riservato **`data/accessi-amministratori.txt`**. Se si è già dentro un’impresa, uscire prima di accedere con l’account amministrativo. Nessuna email viene inviata.
+Sono disponibili due account personali di **amministratore della piattaforma**, separati dai responsabili delle imprese. Per accedere usare codice **`luviqai`**, la propria email e la password iniziale nel file riservato **`data/accessi-amministratori.txt`**. Se si è già dentro un’impresa, uscire prima di accedere con l’account amministrativo. Nessuna email viene inviata da questa funzione.
 
 Entrambi gli amministratori possono:
 
@@ -79,7 +79,7 @@ La sezione **Preventivi** consente di creare proposte commerciali per i clienti 
 2. **Salva bozza**: il backend calcola imponibile, IVA e totale. La numerazione è automatica e distinta per impresa (PRE-anno iniziale-progressivo aziendale); il progressivo non viene azzerato annualmente. Le bozze si possono modificare con una motivazione, conservando ogni versione nello storico.
 3. **Scarica PDF / Stampa**: genera il PDF sul backend e lo scarica direttamente, anche senza la finestra di stampa del browser integrato. Aprire il file scaricato e scegliere Stampa nel lettore PDF. Il download richiede la sessione autenticata e rispetta l’isolamento tra imprese. Il documento conserva la copia di anagrafica cliente e azienda registrata all’ultimo salvataggio della bozza. Per aggiornare i recapiti prima dell’invio, salvare nuovamente la bozza. Le modifiche successive alle anagrafiche non riscrivono documenti già inviati.
 4. **Registra invio**: conferma manualmente una consegna già effettuata e blocca le modifiche al contenuto. Nessuna email o messaggio viene inviato. Sono richiesti una motivazione o un riferimento e una validità corrente.
-5. **Registra accettazione / rifiuto**: registra la risposta ricevuta dal cliente. Un preventivo scaduto non può essere accettato. L’accettazione non crea automaticamente pacchetti, pagamenti, interventi o fatture.
+5. **Registra accettazione / rifiuto**: registra la risposta ricevuta dal cliente. Un preventivo scaduto non può essere accettato. L’accettazione non crea automaticamente pacchetti, pagamenti, interventi o fatture. È disponibile anche l’invio email con pagina di risposta: vedere docs/EMAIL.md.
 6. **Duplica preventivo**: prepara una nuova bozza con nuovo numero, nuove date e riferimento al precedente. Consente di riformulare anche offerte rifiutate o annullate. Le condizioni sono ricopiate dal documento originale e possono essere modificate prima del salvataggio.
 
 Stati disponibili: bozza, inviato, accettato, rifiutato, annullato. Lo stato “scaduto” è segnalato sui preventivi inviati oltre la validità. L’annullamento è motivato e conserva il documento. Non è disponibile la cancellazione definitiva. Filtri e ricerca trovano numero, cliente e oggetto. CSV, backup e ripristino includono tutti i preventivi e lo storico.
@@ -87,6 +87,8 @@ Stati disponibili: bozza, inviato, accettato, rifiutato, annullato. Lo stato “
 Gli importi sono salvati in centesimi interi, le quantità in centesimi di unità, aliquote e sconti in centesimi di punto percentuale. Arrotondamento commerciale per riga: importo quantità × prezzo al centesimo, poi sconto al centesimo, poi IVA al centesimo; i totali sommano le righe. Le aliquote sono indicate dall’utente, senza suggerire automaticamente il trattamento fiscale. Questa versione gestisce preventivi commerciali semplici in EUR: non emette fatture e non gestisce automaticamente regimi fiscali, ritenute, bollo, firma elettronica o invio al cliente.
 
 ## Database e migrazione
+
+Per logo aziendale, email con PDF, risposta cliente e configurazione Gmail consultare [Email e notifiche](docs/EMAIL.md). La modalità corrente è simulazione locale, senza invii reali. Il layout del PDF rivisto con Sol è stato mantenuto.
 
 - Database corrente: **`data/postgres/`**. Contiene dati di tutte le imprese e credenziali con hash.
 - Database precedente: **`data/myclean.sqlite`**, conservato e aperto in sola lettura per l’importazione.

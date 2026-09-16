@@ -193,3 +193,50 @@ DO $$ BEGIN
 END $$
 -- next
 INSERT INTO schema_version(version) VALUES(4) ON CONFLICT DO NOTHING
+-- next
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS logo_data text NOT NULL DEFAULT ''
+-- next
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS phone text NOT NULL DEFAULT ''
+-- next
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS website text NOT NULL DEFAULT ''
+-- next
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS tax_id text NOT NULL DEFAULT ''
+-- next
+INSERT INTO schema_version(version) VALUES(5) ON CONFLICT DO NOTHING
+-- next
+CREATE TABLE IF NOT EXISTS mail_messages (
+ tenant_id text NOT NULL REFERENCES tenants(id), id text NOT NULL,
+ quote_id integer, kind text NOT NULL CHECK(kind IN ('quote','response')),
+ mode text NOT NULL CHECK(mode IN ('preview','smtp')),
+ status text NOT NULL CHECK(status IN ('queued','sending','sent','preview','uncertain','cancelled')),
+ recipient text NOT NULL, subject text NOT NULL, content jsonb NOT NULL,
+ created text NOT NULL, updated text NOT NULL, error text NOT NULL DEFAULT '',
+ PRIMARY KEY(tenant_id,id), FOREIGN KEY(tenant_id,quote_id) REFERENCES quotes(tenant_id,id)
+)
+-- next
+CREATE TABLE IF NOT EXISTS quote_links (
+ token_hash text PRIMARY KEY, tenant_id text NOT NULL REFERENCES tenants(id), quote_id integer NOT NULL,
+ mail_id text NOT NULL, expires bigint NOT NULL, revoked boolean NOT NULL DEFAULT false,
+ response jsonb, responded_at text,
+ FOREIGN KEY(tenant_id,quote_id) REFERENCES quotes(tenant_id,id),
+ FOREIGN KEY(tenant_id,mail_id) REFERENCES mail_messages(tenant_id,id)
+)
+-- next
+CREATE TABLE IF NOT EXISTS notifications (
+ tenant_id text NOT NULL REFERENCES tenants(id), id text NOT NULL,
+ quote_id integer NOT NULL, title text NOT NULL, body text NOT NULL, created text NOT NULL, read_at text,
+ PRIMARY KEY(tenant_id,id), FOREIGN KEY(tenant_id,quote_id) REFERENCES quotes(tenant_id,id)
+)
+-- next
+GRANT SELECT,INSERT,UPDATE ON mail_messages,quote_links,notifications TO luviq_tenant
+-- next
+DO $$ DECLARE tab text; BEGIN
+ FOREACH tab IN ARRAY ARRAY['mail_messages','quote_links','notifications'] LOOP
+  EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY',tab);
+  IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename=tab AND policyname='tenant_isolation') THEN
+   EXECUTE format('CREATE POLICY tenant_isolation ON %I TO luviq_tenant USING (tenant_id=current_setting(''app.tenant_id'',true)) WITH CHECK (tenant_id=current_setting(''app.tenant_id'',true))',tab);
+  END IF;
+ END LOOP;
+END $$
+-- next
+INSERT INTO schema_version(version) VALUES(6) ON CONFLICT DO NOTHING
