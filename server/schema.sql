@@ -240,3 +240,28 @@ DO $$ DECLARE tab text; BEGIN
 END $$
 -- next
 INSERT INTO schema_version(version) VALUES(6) ON CONFLICT DO NOTHING
+-- next
+CREATE TABLE IF NOT EXISTS invoices (
+ tenant_id text NOT NULL REFERENCES tenants(id), id integer NOT NULL,
+ client_id integer NOT NULL, quote_id integer, number text NOT NULL, revision integer NOT NULL DEFAULT 1,
+ status text NOT NULL CHECK(status IN ('draft','issued','paid','cancelled')),
+ issue_date text NOT NULL, due_date text NOT NULL,
+ document jsonb NOT NULL, net integer NOT NULL CHECK(net>=0), tax integer NOT NULL CHECK(tax>=0), total integer NOT NULL CHECK(total=net+tax),
+ payment jsonb NOT NULL DEFAULT '{}'::jsonb, paid_at text, created text NOT NULL, updated text NOT NULL,
+ PRIMARY KEY(tenant_id,id), UNIQUE(tenant_id,number),
+ FOREIGN KEY(tenant_id,client_id) REFERENCES clients(tenant_id,id),
+ FOREIGN KEY(tenant_id,quote_id) REFERENCES quotes(tenant_id,id)
+)
+-- next
+CREATE UNIQUE INDEX IF NOT EXISTS invoices_quote_unique ON invoices(tenant_id,quote_id) WHERE quote_id IS NOT NULL AND status<>'cancelled'
+-- next
+GRANT SELECT,INSERT,UPDATE ON invoices TO luviq_tenant
+-- next
+DO $$ BEGIN
+ ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+ IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='invoices' AND policyname='tenant_isolation') THEN
+  CREATE POLICY tenant_isolation ON invoices TO luviq_tenant USING(tenant_id=current_setting('app.tenant_id',true)) WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+ END IF;
+END $$
+-- next
+INSERT INTO schema_version(version) VALUES(7) ON CONFLICT DO NOTHING
