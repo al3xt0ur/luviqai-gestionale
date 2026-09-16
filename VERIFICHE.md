@@ -1,5 +1,16 @@
 # Verifica della demo
 
+## Amministrazione piattaforma — 15 settembre 2026
+
+Ripresa del 16 settembre: server locale riavviato e accesso dei due amministratori personali verificato sulle API effettive, senza cambiare le password iniziali. Entrambi vedono le due imprese esistenti.
+
+- 25 verifiche automatiche superate, comprese le regressioni delle funzioni esistenti.
+- Due amministratori equivalenti, separati dai responsabili aziendali. Le API amministrative rifiutano utenti non autorizzati e i tentativi di promozione al ruolo globale.
+- Accesso a più imprese mantenendo identità e storico dell’amministratore, con RLS attiva sulle operazioni aziendali.
+- Sospensione/riattivazione imprese, revoca sessioni, reset delle password aziendali senza esposizione delle password nello storico, modifica profilo e password personali verificati.
+- Percorso browser dedicato completato: login di entrambi gli admin, nuova impresa, modifica cliente, cambio impresa, sospensione/riattivazione, interfaccia mobile. Richieste da scheda vecchia respinte per token CSRF o contesto aziendale non coerente.
+- Build TypeScript e Vite riuscita. Schermate in test-results/piattaforma-admin.png e test-results/piattaforma-mobile.png, escluse da Git.
+
 ## Prima consegna per più imprese — 15 settembre 2026
 
 - 19 verifiche automatiche superate fra test principali e sottotest, usando PostgreSQL/PGlite e il database SQLite storico per le regressioni di importazione.

@@ -24,7 +24,7 @@ async function verify(value,stored) {
 }
 const dummy=await hashPassword(secret());
 const now=()=>new Date().toISOString();
-export const publicUser=u=>({id:u.id,tenantId:u.tenant_id,name:u.name,email:u.email,role:u.role});
+export const publicUser=u=>({id:u.id,tenantId:u.active_tenant_id||u.tenant_id,homeTenantId:u.tenant_id,name:u.name,email:u.email,role:u.role});
 
 export async function provision(store,{slug,name,email,password,userName='Responsabile'}) {
   if(!/^[a-z0-9-]{3,50}$/.test(slug))fail('Codice azienda non valido.');
@@ -48,7 +48,7 @@ export async function login(store,input,ip) {
     const ipAttempt=await one(tx,'SELECT * FROM login_attempts WHERE key=$1 FOR UPDATE',[ipKey]);
     const attempt=await one(tx,'SELECT * FROM login_attempts WHERE key=$1 FOR UPDATE',[key]);
     if(Number(ipAttempt.blocked_until)>time||Number(attempt.blocked_until)>time)return {error:'Troppi tentativi. Riprova tra 15 minuti.',status:429};
-    const user=await one(tx,'SELECT u.* FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE t.slug=$1 AND u.email=$2 AND u.active=true',[slug,email]);
+    const user=await one(tx,'SELECT u.* FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE t.slug=$1 AND u.email=$2 AND u.active=true AND t.active=true',[slug,email]);
     const valid=await verify(input.password,user?.password_hash||dummy);
     if(!valid||!user) {
       for(const [k,a,limit] of [[ipKey,ipAttempt,30],[key,attempt,5]]) {
@@ -70,14 +70,14 @@ export async function login(store,input,ip) {
 export async function authenticate(store,cookie='') {
   const token=cookie.split(';').map(v=>v.trim()).find(v=>v.startsWith('luviq_session='))?.slice(14);
   if(!token)return null;
-  const user=await one(store,'SELECT u.*,s.csrf,s.token_hash FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires>$2 AND u.active=true',[digest(token),Date.now()]);
+  const user=await one(store,'SELECT u.*,s.csrf,s.token_hash,s.active_tenant_id FROM sessions s JOIN users u ON u.id=s.user_id JOIN tenants t ON t.id=u.tenant_id WHERE s.token_hash=$1 AND s.expires>$2 AND u.active=true AND t.active=true',[digest(token),Date.now()]);
   return user?{...publicUser(user),csrf:user.csrf,tokenHash:user.token_hash}:null;
 }
 
 export const team=async(store,actor)=>rows(store,'SELECT id,name,email,role,active FROM users WHERE tenant_id=$1 ORDER BY name',[actor.tenantId]);
 
 export async function manageUser(store,actor,input) {
-  if(actor.role!=='manager')fail('Operazione riservata al responsabile.',403);
+  if(!['manager','platform_admin'].includes(actor.role))fail('Operazione riservata al responsabile.',403);
   const passwordHash=input.password?await hashPassword(input.password):null;
   return store.transaction(async tx=>{
     await tx.query('SELECT id FROM tenants WHERE id=$1 FOR UPDATE',[actor.tenantId]);
@@ -85,6 +85,7 @@ export async function manageUser(store,actor,input) {
     if(input.id) {
       before=await one(tx,'SELECT id,name,email,role,active FROM users WHERE tenant_id=$1 AND id=$2',[actor.tenantId,input.id]);
       if(!before)fail('Utente non trovato.',404);
+      if(before.role==='platform_admin')fail('Gli amministratori della piattaforma si gestiscono dal pannello luviqAI.',403);
       if(input.id===actor.id)fail('Non puoi disattivare il tuo account.');
       if(typeof input.active!=='boolean')fail('Stato utente non valido.');
       after=await one(tx,'UPDATE users SET active=$3 WHERE tenant_id=$1 AND id=$2 RETURNING id,name,email,role,active',[actor.tenantId,input.id,input.active]);
@@ -104,7 +105,7 @@ export async function manageUser(store,actor,input) {
 export async function changePassword(store,actor,input) {
   const hash=await hashPassword(input.password);
   await store.transaction(async tx=>{
-    const user=await one(tx,'SELECT * FROM users WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[actor.id,actor.tenantId]);
+    const user=await one(tx,'SELECT * FROM users WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[actor.id,actor.homeTenantId||actor.tenantId]);
     if(!user||!await verify(input.currentPassword,user.password_hash))fail('Password attuale non corretta.');
     await tx.query('UPDATE users SET password_hash=$2 WHERE id=$1',[actor.id,hash]);
     await tx.query('DELETE FROM sessions WHERE user_id=$1',[actor.id]);

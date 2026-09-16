@@ -3,7 +3,7 @@ import {dirname} from 'node:path';
 import {createHash} from 'node:crypto';
 import {one,rows} from './storage.mjs';
 
-const tables=['tenants','users','clients','packages','interventions','audit','requests','imports'];
+const tables=['tenants','users','clients','packages','interventions','audit','requests','imports','platform_audit'];
 const checksum=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 export async function backupStore(store,path) {
@@ -22,6 +22,8 @@ export async function backupStore(store,path) {
 export async function restoreStore(store,path) {
   const backup=JSON.parse(await readFile(path,'utf8'));
   if(backup.version!==1||backup.checksum!==checksum(backup.data))throw Error('Backup non valido o checksum non corrispondente.');
+  // I backup della versione 1 precedente al pannello admin non contenevano questo registro.
+  if(backup.data.platform_audit===undefined)backup.data.platform_audit=[];
   for(const table of tables)if(!Array.isArray(backup.data[table]))throw Error('Backup incompleto.');
   await store.transaction(async tx=>{
     if(Number((await one(tx,'SELECT count(*) AS count FROM tenants')).count)!==0)throw Error('Ripristino consentito solo in un database vuoto.');

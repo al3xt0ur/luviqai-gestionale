@@ -7,6 +7,7 @@ import { snapshot, mutate, fail } from './domain.mjs';
 import { authenticate, login, team, manageUser, changePassword, resetPassword } from './auth.mjs';
 import { bootstrapLocal } from './bootstrap.mjs';
 import { backupStore } from './backup.mjs';
+import {requireAdmin,platformState,switchCompany,createCompany,suspendCompany,adminProfile,resetCompanyUser} from './platform.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const production=process.env.NODE_ENV==='production';
@@ -58,21 +59,39 @@ const server=createServer(async(req,res)=>{
       const actor=await authenticate(store,req.headers.cookie);
       if(!actor)fail('Accedi per continuare.',401);
       if(req.method==='POST'&&req.headers['x-csrf-token']!==actor.csrf)fail('Sessione non valida. Ricarica la pagina.',403);
-      if(req.method==='GET'&&url.pathname==='/api/me')return send(200,{user:{id:actor.id,tenantId:actor.tenantId,name:actor.name,email:actor.email,role:actor.role},csrf:actor.csrf});
+      if(req.method==='GET'&&url.pathname==='/api/me')return send(200,{user:{id:actor.id,tenantId:actor.tenantId,homeTenantId:actor.homeTenantId,name:actor.name,email:actor.email,role:actor.role},csrf:actor.csrf});
       if(req.method==='POST'&&url.pathname==='/api/logout') {
         await store.query('DELETE FROM sessions WHERE token_hash=$1',[actor.tokenHash]);
         res.setHeader('Set-Cookie',cookie('',true));return send(200,{ok:true});
       }
-      if(req.method==='GET'&&url.pathname==='/api/state') {
-        const state=await snapshot(store,actor);
-        return send(200,{...state,team:actor.role==='manager'?await team(store,actor):[]});
-      }
       if(req.method==='POST'&&url.pathname==='/api/password') {
         await changePassword(store,actor,input);res.setHeader('Set-Cookie',cookie('',true));return send(200,{ok:true});
       }
+      if(url.pathname.startsWith('/api/platform/')) {
+        requireAdmin(actor);
+        const action=url.pathname.slice('/api/platform/'.length);
+        if(req.method==='GET'&&action==='state')return send(200,await platformState(store,actor));
+        if(req.method==='GET'&&action==='users')return send(200,await team(store,{tenantId:url.searchParams.get('company')}));
+        if(req.method==='POST') {
+          if(action==='switch')return send(200,await switchCompany(store,actor,input));
+          if(action==='create')return send(200,await createCompany(store,actor,input,req.headers['idempotency-key']));
+          if(action==='status')return send(200,await suspendCompany(store,actor,input));
+          if(action==='profile')return send(200,await adminProfile(store,actor,input));
+          if(action==='reset-user')return send(200,await resetCompanyUser(store,actor,input));
+        }
+        fail('Risorsa non trovata.',404);
+      }
+      if(actor.role==='platform_admin') {
+        const context=req.headers['x-tenant-context']||url.searchParams.get('company');
+        if(actor.tenantId===actor.homeTenantId||context!==actor.tenantId)fail('Seleziona l’azienda dal pannello amministrativo. Se hai cambiato azienda in un’altra scheda, ricarica questa pagina.',409);
+      }
+      if(req.method==='GET'&&url.pathname==='/api/state') {
+        const state=await snapshot(store,actor);
+        return send(200,{...state,team:actor.role!=='operator'?await team(store,actor):[]});
+      }
       if(req.method==='POST'&&url.pathname==='/api/user')return send(200,await manageUser(store,actor,input));
       if(req.method==='GET'&&url.pathname==='/api/export') {
-        if(actor.role!=='manager')fail('Esportazione riservata al responsabile.',403);
+        if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
         const state=await snapshot(store,actor),csv=[['Tipo','ID','Cliente','Dati']];
         for(const type of ['clients','packages','interventions','audit'])for(const item of state[type])csv.push([type,item.id,item.clientId||'',JSON.stringify(item)]);
         const cell=v=>'"'+String(v).replace(/^[=+@-]/,"'$&").replaceAll('"','""')+'"';
@@ -80,7 +99,7 @@ const server=createServer(async(req,res)=>{
         return res.end('\ufeff'+csv.map(r=>r.map(cell).join(';')).join('\r\n'));
       }
       if(req.method==='POST') {
-        if(actor.role==='manager')actor.assignableUserIds=(await team(store,actor)).filter(u=>u.active&&u.role==='operator').map(u=>u.id);
+        if(actor.role!=='operator')actor.assignableUserIds=(await team(store,actor)).filter(u=>u.active&&u.role==='operator').map(u=>u.id);
         return send(200,await mutate(store,actor,url.pathname.slice(5),input,req.headers['idempotency-key']));
       }
       fail('Risorsa non trovata.',404);

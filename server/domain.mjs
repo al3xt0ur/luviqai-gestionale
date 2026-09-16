@@ -67,10 +67,11 @@ export async function snapshot(store,actor) {
 export async function mutate(store,actor,action,input,key) {
   if(!input||Array.isArray(input)||typeof input!=='object')fail('Richiesta non valida.');
   required(key,150);
-  if(actor.role!=='manager'&&action!=='complete')fail('Il tuo account non può eseguire questa operazione.',403);
+  if(!['manager','platform_admin'].includes(actor.role)&&action!=='complete')fail('Il tuo account non può eseguire questa operazione.',403);
   // L'azienda deriva esclusivamente dalla sessione, mai dal corpo della richiesta.
   if('tenantId' in input || 'tenant_id' in input) fail('L’azienda non può essere modificata nella richiesta.',403);
   return tenantTransaction(store,actor.tenantId,async(tx,tenant)=>{
+    if(!tenant.active&&actor.role!=='platform_admin')fail('Azienda sospesa.',403);
     const t=actor.tenantId;
     const payload=JSON.stringify({action,input});
     const cached=await one(tx,'SELECT * FROM requests WHERE tenant_id=$1 AND user_id=$2 AND key=$3',[t,actor.id,key]);

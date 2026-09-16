@@ -114,4 +114,28 @@ DO $$ DECLARE tab text; BEGIN
 END $$
 -- next
 INSERT INTO schema_version(version) VALUES(1) ON CONFLICT DO NOTHING
+-- next
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_platform boolean NOT NULL DEFAULT false
+-- next
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true
+-- next
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS active_tenant_id text REFERENCES tenants(id)
+-- next
+DO $$ BEGIN
+  IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=2) THEN
+    ALTER TABLE users DROP CONSTRAINT users_role_check;
+    ALTER TABLE users ADD CONSTRAINT users_role_check CHECK(role IN ('manager','operator','platform_admin'));
+    INSERT INTO schema_version(version) VALUES(2);
+  END IF;
+END $$
+-- next
+CREATE TABLE IF NOT EXISTS platform_audit (
+  id text PRIMARY KEY,
+  date text NOT NULL,
+  author_id text NOT NULL,
+  author text NOT NULL,
+  action text NOT NULL,
+  tenant_id text,
+  details jsonb NOT NULL
+)
 

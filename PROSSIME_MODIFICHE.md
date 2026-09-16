@@ -12,6 +12,8 @@
 
 ## Da implementare nelle consegne successive
 
+Completato anche il pannello amministrativo luviqAI: due account personali con autorità su tutte le imprese, gestione aziende, accesso tracciato, sospensione/riattivazione e reset degli account aziendali.
+
 - [ ] Preventivi: listino, PDF, stati e conversione in pacchetto/intervento.
 - [ ] Fatturazione interna: documenti, scadenze, pagamenti e servizio di fatturazione elettronica.
 - [ ] Assistente AI operativo, autorizzazioni, conferme e tracciamento operazioni.

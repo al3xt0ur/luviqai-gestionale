@@ -30,6 +30,26 @@ Da **Azienda e account** il responsabile può modificare nome, colore, sigla del
 
 ## Cosa provare
 
+### Amministratori luviqAI
+
+Sono disponibili due account personali di **amministratore della piattaforma**, separati dai responsabili delle imprese. Per accedere usare codice **`luviqai`**, la propria email e la password iniziale nel file riservato **`data/accessi-amministratori.txt`**. Se si è già dentro un’impresa, uscire prima di accedere con l’account amministrativo. Nessuna email viene inviata.
+
+Entrambi gli amministratori possono:
+
+- Vedere tutte le imprese e creare una nuova impresa con il suo primo responsabile.
+- Sospendere/riattivare un’impresa senza perdere dati; la sospensione chiude le sessioni dei suoi utenti.
+- Aprire qualunque impresa e usare tutte le funzioni esistenti: clienti, pacchetti, interventi, approvazioni, rettifiche, archiviazione, export e identità aziendale.
+- Creare/disattivare gli account aziendali dentro “Azienda e account”, oppure reimpostarne la password dal pannello globale con motivazione e revoca delle vecchie sessioni.
+- Modificare il proprio nome, email e password. Le password degli altri utenti non sono visibili.
+
+Il banner amministrativo identifica l’impresa su cui si sta operando. “Tutte le imprese” riporta al pannello globale. Gli amministratori agiscono con la propria identità: le modifiche compaiono nello storico aziendale con nome e ID reali dell’autore. Gli accessi alle imprese, le sospensioni e i reset compaiono anche nel registro amministrativo (ultime 200 voci mostrate, conservazione integrale nel database e nei backup).
+
+Il cambio impresa rinnova il token CSRF; le richieste amministrative richiedono anche un contesto aziendale coerente. Una scheda rimasta aperta sull’impresa precedente viene bloccata e deve essere ricaricata. I normali responsabili non possono selezionare un’altra impresa, accedere alle API globali o creare ruoli amministrativi.
+
+Per una nuova installazione, a server locale fermo: `node scripts/admins.mjs`. Il comando chiede nome/email dei due amministratori e genera password casuali nel file riservato; rifiuta una seconda inizializzazione. Non concedere il ruolo `platform_admin` agli utenti delle aziende. “Possibilità di fare tutto” riguarda le funzioni implementate: non comprende eliminazione definitiva dello storico né funzioni future non ancora sviluppate.
+
+### Operatività aziendale
+
 1. Accedere a My Clean e verificare clienti, saldi e storico importati.
 2. Creare un intervento e assegnarlo a un account operatore tramite il campo dedicato. Il nome libero della squadra non assegna permessi.
 3. Accedere come operatore: sono visibili solo gli interventi assegnati e i relativi clienti/pacchetti. L’operatore può inserire la durata effettiva e completare l’intervento, ma non approvare, modificare clienti, confermare pagamenti o esportare dati.
@@ -113,6 +133,7 @@ Con Playwright e Chrome disponibili:
 ```powershell
 node tests/browser.mjs
 node tests/browser-accounts.mjs
+node tests/browser-platform.mjs
 ```
 
 È possibile passare come primo argomento il percorso del modulo `playwright/index.mjs`. Le prove browser usano la porta 3138 e database temporanei; le schermate e il PDF dimostrativo vengono salvati in `test-results/`, esclusa da Git.
