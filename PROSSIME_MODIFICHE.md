@@ -14,7 +14,9 @@
 
 Completato anche il pannello amministrativo luviqAI: due account personali con autorità su tutte le imprese, gestione aziende, accesso tracciato, sospensione/riattivazione e reset degli account aziendali.
 
-- [ ] Preventivi: listino, PDF, stati e conversione in pacchetto/intervento.
+- [x] Catalogo pacchetti configurabile, preventivi con PDF e logo, stati e storico.
+- [x] Email in anteprima/SMTP, risposta cliente con note, notifiche e nuova proposta dopo un rifiuto.
+- [ ] Conversione dei preventivi accettati in pacchetto/intervento.
 - [ ] Fatturazione interna: documenti, scadenze, pagamenti e servizio di fatturazione elettronica.
 - [ ] Assistente AI operativo, autorizzazioni, conferme e tracciamento operazioni.
 - [ ] Account clienti con accesso ai propri dati.

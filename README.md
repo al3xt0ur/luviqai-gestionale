@@ -4,6 +4,8 @@ Prima consegna della versione rivendibile a più imprese. My Clean è la prima a
 
 ## Avvio su Windows
 
+Per riprendere il progetto da GitHub o con un altro modello, leggere anche [Guida al passaggio di lavoro](docs/HANDOFF.md). Git trasferisce codice e cronologia; dati e accessi locali restano separati.
+
 Richiede Node.js 24. Per un’installazione riproducibile: `pnpm install --frozen-lockfile` con pnpm 11. In alternativa è possibile usare `npm.cmd install`.
 
 ```powershell
@@ -19,7 +21,7 @@ Il database locale usa PGlite, un motore PostgreSQL incorporato nel processo Nod
 
 Al primo avvio locale vengono create due imprese separate:
 
-- `my-clean`: My Clean Multiservice, con i dati importati dalla precedente demo SQLite.
+- `my-clean`: My Clean Multiservice, con i dati importati dalla precedente demo SQLite se il file locale esiste; in una nuova copia del repository parte vuota.
 - `impresa-demo`: seconda impresa, inizialmente vuota, utile per verificare la separazione dei dati.
 
 Le password sono generate casualmente e salvate una sola volta in **`data/accessi-locali.txt`**, escluso da Git. Il file contiene due responsabili e un operatore di prova per My Clean. Non pubblicarlo. Gli account hanno password diverse anche quando l’email dimostrativa coincide.
