@@ -8,6 +8,7 @@ import { authenticate, login, team, manageUser, changePassword, resetPassword } 
 import { bootstrapLocal } from './bootstrap.mjs';
 import { backupStore } from './backup.mjs';
 import {requireAdmin,platformState,switchCompany,createCompany,suspendCompany,adminProfile,resetCompanyUser} from './platform.mjs';
+import {quotePDF} from './quote-pdf.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const production=process.env.NODE_ENV==='production';
@@ -90,6 +91,15 @@ const server=createServer(async(req,res)=>{
         return send(200,{...state,team:actor.role!=='operator'?await team(store,actor):[]});
       }
       if(req.method==='POST'&&url.pathname==='/api/user')return send(200,await manageUser(store,actor,input));
+      const pdfMatch=url.pathname.match(/^\/api\/quotes\/(\d+)\/pdf$/);
+      if(req.method==='GET'&&pdfMatch){
+        if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
+        const state=await snapshot(store,actor),quote=state.quotes.find(q=>q.id===Number(pdfMatch[1]));
+        if(!quote)fail('Preventivo non trovato.',404);
+        const pdf=await quotePDF(quote);
+        res.writeHead(200,{'Content-Type':'application/pdf','Content-Disposition':`attachment; filename="${quote.number.replace(/[^a-zA-Z0-9-]/g,'_')}.pdf"`,'Cache-Control':'no-store','Content-Length':pdf.length});
+        return res.end(pdf);
+      }
       if(req.method==='GET'&&url.pathname==='/api/export') {
         if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
         const state=await snapshot(store,actor),csv=[['Tipo','ID','Cliente','Dati']];

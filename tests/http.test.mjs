@@ -34,6 +34,12 @@ test('HTTP autenticato: isolamento, CSRF, duplicati concorrenti, cookie, export 
     assert.equal(JSON.parse((await get('state',b)).text).clients.length,0);
     assert.equal((await request('client',{id:c.body.value.id,name:'Attacco'},b)).status,404);
     assert.equal((await request('client',{name:'Attacco',tenantId:authA.body.user.tenantId},b)).status,403);
+    const quote=(await request('quote',{clientId:c.body.value.id,title:'Preventivo PDF',issueDate:'2026-01-01',validUntil:'2099-12-31',lines:[{description:'Servizio riservato',quantity:100,unitPrice:1500,vat:2200}]},a)).body.value;
+    assert.equal((await get('quotes/'+quote.id+'/pdf')).status,401);
+    assert.equal((await get('quotes/'+quote.id+'/pdf',b)).status,404);
+    const pdf=await fetch(url+'/api/quotes/'+quote.id+'/pdf',{headers:{Cookie:a.cookie}});assert.equal(pdf.status,200);assert.equal(pdf.headers.get('content-type'),'application/pdf');assert(pdf.headers.get('content-disposition').includes('attachment'));assert.equal((await pdf.text()).slice(0,5),'%PDF-');
+    await request('user',{name:'Operatore PDF',email:'op@example.com',password,role:'operator'},a);
+    const op=await request('login',{slug:'prima',email:'op@example.com',password});assert.equal((await get('quotes/'+quote.id+'/pdf',{cookie:op.cookie.split(';')[0]})).status,403);
     const model=(await request('template',{name:'Offerta HTTP',minutes:1200,rule:'team'},a)).body.value;
     const p=(await request('package',{clientId:c.body.value.id,templateId:model.id,templateRevision:model.revision,initial:120,paid:true},a)).body.value;
     const item={packageId:p.id,date:new Date(Date.now()-10000).toISOString(),duration:120,operators:2,status:'pending',service:'Test',team:'T'};
