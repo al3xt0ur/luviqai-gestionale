@@ -62,6 +62,14 @@ test('preventivi: flusso completo, isolamento, concorrenza, copia, backup e pers
    const sent=(await run('quote-status',{id:copied.id,revision:1,status:'sent',reason:'Consegna'})).value;
    const rejected=(await run('quote-status',{id:sent.id,revision:sent.revision,status:'rejected',reason:'Proposta non accettata'})).value;
    assert.equal(rejected.status,'rejected');await assert.rejects(run('quote-status',{id:rejected.id,revision:rejected.revision,status:'accepted',reason:'Ripensamento'}),/Passaggio/);
+   const proposal={...input,sourceId:rejected.id,negotiation:true,lines:[{description:'Offerta rinegoziata',quantity:100,unitPrice:3000,discount:0,vat:2200}]};
+   const results=await Promise.all(Array.from({length:4},()=>run('quote',proposal,'negotiation-key')));
+   assert(results.every(x=>x.value.id===results[0].value.id));
+   const revised=results[0].value;assert.equal(revised.status,'draft');assert.equal(revised.total,3660);assert.equal(revised.sourceId,rejected.id);
+   const original=(await snapshot(db,a)).quotes.find(x=>x.id===rejected.id);assert.equal(original.status,'rejected');assert.equal(original.total,rejected.total);
+   await assert.rejects(run('quote',{...proposal,sourceId:quote.id}),/rifiutato/);
+   const other=(await run('client',{name:'Altro cliente'})).value;
+   await assert.rejects(run('quote',{...proposal,clientId:other.id}),/stesso cliente/);
    assert.deepEqual((await snapshot(db,b)).quotes,[]);
    await tenantTransaction(db,b.tenantId,async tx=>assert.equal((await tx.query('SELECT * FROM quotes')).rows.length,0));
    await assert.rejects(run('quote-status',{id:quote.id,revision:quote.revision,status:'sent',reason:'Attacco'},undefined,b),/non trovato/);

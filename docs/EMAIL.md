@@ -43,6 +43,12 @@ Riavviare il server dopo modifiche alla configurazione. Il worker elabora la cod
 
 ## Errori e duplicati
 
+### Trattativa dopo un rifiuto
+
+Aprire il preventivo rifiutato e scegliere **Rivedi proposta**. L’editor riprende servizi, prezzi e condizioni per lo stesso cliente, con nuove date. Modificare l’offerta e salvare la bozza; quindi usare **Invia via email**. Viene creato un nuovo numero con un collegamento alla proposta precedente. Il rifiuto, gli importi e le note originali rimangono nello storico. I collegamenti “Proposta collegata a” e “Proposte successive” consentono di spostarsi tra le offerte. La nuova proposta ha un proprio invio e un nuovo collegamento di risposta.
+
+La nuova offerta non sostituisce il documento rifiutato e non riattiva il suo vecchio collegamento. Se viene rifiutata nuovamente, si può ripetere il percorso per continuare la trattativa.
+
 Un errore SMTP o un invio interrotto è segnato **Da verificare**: non viene ripetuto automaticamente, perché un timeout può avvenire dopo la consegna. Dopo aver controllato la casella mittente, il responsabile può chiudere il tentativo con motivazione; il vecchio collegamento viene revocato. Un nuovo tentativo sarà quindi esplicito. Gli invii interrotti vengono segnalati dopo due minuti. Il ripristino di un backup blocca gli invii pendenti da verificare e non provoca spedizioni inattese.
 
 Le risposte duplicate identiche non producono altri aggiornamenti o notifiche; una scelta diversa dopo la conferma viene rifiutata. Per correggerla il cliente deve contattare l’impresa. Ore e pagamenti non cambiano automaticamente.

@@ -34,6 +34,7 @@ export async function changeQuote({tx,t,state,input,action,tenant,insert,update}
     if(before){required(input.reason,2000);after=await update(tx,t,'quotes',before.id,value);}
     else {
       let source=null;if(input.sourceId)source=state.quotes.find(q=>q.id===Number(input.sourceId))||fail('Preventivo di origine non trovato.',404);
+      if(input.negotiation===true&&(!source||source.status!=='rejected'||source.clientId!==clientId))fail('La proposta rivista deve partire da un preventivo rifiutato dello stesso cliente.');
       const id=(await one(tx,'SELECT coalesce(max(id),0)+1 AS id FROM quotes WHERE tenant_id=$1',[t])).id;
       after=await insert(tx,t,'quotes',{...value,number:`PRE-${issueDate.slice(0,4)}-${String(id).padStart(4,'0')}`,status:'draft',sourceId:source?.id||null,created:now},id);
     }
