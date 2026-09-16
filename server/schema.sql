@@ -170,3 +170,26 @@ DO $$ BEGIN
     ALTER TABLE packages ADD CONSTRAINT packages_template_fk FOREIGN KEY(tenant_id,template_id) REFERENCES package_templates(tenant_id,id);
   END IF;
 END $$
+-- next
+CREATE TABLE IF NOT EXISTS quotes (
+ tenant_id text NOT NULL REFERENCES tenants(id), id integer NOT NULL,
+ client_id integer NOT NULL, number text NOT NULL, revision integer NOT NULL DEFAULT 1,
+ status text NOT NULL CHECK(status IN ('draft','sent','accepted','rejected','cancelled')),
+ issue_date text NOT NULL, valid_until text NOT NULL,
+ document jsonb NOT NULL, net integer NOT NULL CHECK(net>=0), tax integer NOT NULL CHECK(tax>=0), total integer NOT NULL CHECK(total=net+tax),
+ source_id integer, created text NOT NULL, updated text NOT NULL,
+ PRIMARY KEY(tenant_id,id), UNIQUE(tenant_id,number),
+ FOREIGN KEY(tenant_id,client_id) REFERENCES clients(tenant_id,id),
+ FOREIGN KEY(tenant_id,source_id) REFERENCES quotes(tenant_id,id)
+)
+-- next
+GRANT SELECT,INSERT,UPDATE ON quotes TO luviq_tenant
+-- next
+DO $$ BEGIN
+ ALTER TABLE quotes ENABLE ROW LEVEL SECURITY;
+ IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='quotes' AND policyname='tenant_isolation') THEN
+  CREATE POLICY tenant_isolation ON quotes TO luviq_tenant USING(tenant_id=current_setting('app.tenant_id',true)) WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+ END IF;
+END $$
+-- next
+INSERT INTO schema_version(version) VALUES(4) ON CONFLICT DO NOTHING

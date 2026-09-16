@@ -71,6 +71,21 @@ Il server valida la versione del modello: una modifica concorrente impedisce di 
 
 Questa configurazione riguarda i pacchetti di ore venduti dalle imprese ai propri clienti. Prezzi, IVA, fatturazione e abbonamenti mensili alla piattaforma saranno gestiti nelle rispettive fasi successive.
 
+## Gestione preventivi
+
+La sezione **Preventivi** consente di creare proposte commerciali per i clienti dell’impresa. Sono accessibili anche dalla scheda cliente. Responsabili e amministratori luviqAI possono gestirli; gli operatori non vedono preventivi o importi.
+
+1. **Nuovo preventivo**: scegliere cliente, oggetto, data e validità; aggiungere fino a 30 voci con quantità, prezzo unitario netto, sconto percentuale e IVA. È possibile copiare una descrizione dal catalogo pacchetti, poi indicare il prezzo concordato. Aggiungere condizioni e note.
+2. **Salva bozza**: il backend calcola imponibile, IVA e totale. La numerazione è automatica e distinta per impresa (PRE-anno iniziale-progressivo aziendale); il progressivo non viene azzerato annualmente. Le bozze si possono modificare con una motivazione, conservando ogni versione nello storico.
+3. **Stampa / Salva PDF**: apre la stampa del browser; scegliere la destinazione PDF per salvare il documento. Il documento conserva la copia di anagrafica cliente e azienda registrata all’ultimo salvataggio della bozza. Per aggiornare i recapiti prima dell’invio, salvare nuovamente la bozza. Le modifiche successive alle anagrafiche non riscrivono documenti già inviati.
+4. **Registra invio**: conferma manualmente una consegna già effettuata e blocca le modifiche al contenuto. Nessuna email o messaggio viene inviato. Sono richiesti una motivazione o un riferimento e una validità corrente.
+5. **Registra accettazione / rifiuto**: registra la risposta ricevuta dal cliente. Un preventivo scaduto non può essere accettato. L’accettazione non crea automaticamente pacchetti, pagamenti, interventi o fatture.
+6. **Duplica preventivo**: prepara una nuova bozza con nuovo numero, nuove date e riferimento al precedente. Consente di riformulare anche offerte rifiutate o annullate. Le condizioni sono ricopiate dal documento originale e possono essere modificate prima del salvataggio.
+
+Stati disponibili: bozza, inviato, accettato, rifiutato, annullato. Lo stato “scaduto” è segnalato sui preventivi inviati oltre la validità. L’annullamento è motivato e conserva il documento. Non è disponibile la cancellazione definitiva. Filtri e ricerca trovano numero, cliente e oggetto. CSV, backup e ripristino includono tutti i preventivi e lo storico.
+
+Gli importi sono salvati in centesimi interi, le quantità in centesimi di unità, aliquote e sconti in centesimi di punto percentuale. Arrotondamento commerciale per riga: importo quantità × prezzo al centesimo, poi sconto al centesimo, poi IVA al centesimo; i totali sommano le righe. Le aliquote sono indicate dall’utente, senza suggerire automaticamente il trattamento fiscale. Questa versione gestisce preventivi commerciali semplici in EUR: non emette fatture e non gestisce automaticamente regimi fiscali, ritenute, bollo, firma elettronica o invio al cliente.
+
 ## Database e migrazione
 
 - Database corrente: **`data/postgres/`**. Contiene dati di tutte le imprese e credenziali con hash.
@@ -146,10 +161,11 @@ Con Playwright e Chrome disponibili:
 node tests/browser.mjs
 node tests/browser-accounts.mjs
 node tests/browser-platform.mjs
+node tests/browser-quotes.mjs
 ```
 
 È possibile passare come primo argomento il percorso del modulo `playwright/index.mjs`. Le prove browser usano la porta 3138 e database temporanei; le schermate e il PDF dimostrativo vengono salvati in `test-results/`, esclusa da Git.
 
 ## Fasi successive
 
-Preventivi, fatturazione elettronica, assistente AI operativo, account clienti e abbonamenti luviqAI non sono ancora implementati. Questa consegna prepara la base per più imprese e consolida i pacchetti ore. Il nome commerciale definitivo è ancora da scegliere; per ora è usato “luviqAI · Gestionale servizi”. La documentazione della prima demo è conservata in `docs/DEMO_V1.md` solo come riferimento storico.
+Fatturazione elettronica, conversione automatica dei preventivi accettati in pacchetti, assistente AI operativo, account clienti e abbonamenti luviqAI non sono ancora implementati. Questa consegna prepara la base per più imprese e consolida i pacchetti ore. Il nome commerciale definitivo è ancora da scegliere; per ora è usato “luviqAI · Gestionale servizi”. La documentazione della prima demo è conservata in `docs/DEMO_V1.md` solo come riferimento storico.

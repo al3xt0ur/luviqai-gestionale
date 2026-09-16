@@ -1,3 +1,4 @@
+import {changeQuote} from './quotes.mjs';
 import { one, rows, tenantTransaction } from './storage.mjs';
 
 export class AppError extends Error {
@@ -16,6 +17,7 @@ export function required(value, max=300) {
 }
 export const camel = record => Object.fromEntries(Object.entries(record).filter(([k])=>k!=='tenant_id').map(([k,v])=>[k.replace(/_([a-z])/g,(_,c)=>c.toUpperCase()),v]));
 const fields = {
+  quotes: ['clientId','number','revision','status','issueDate','validUntil','document','net','tax','total','sourceId','created','updated'],
   clients: ['name','email','phone','address','archived'],
   packages: ['clientId','tier','original','initial','rule','paid','renewedFrom','created','templateId','templateRevision','description'],
   package_templates: ['name','description','minutes','rule','active','revision'],
@@ -50,7 +52,8 @@ export async function snapshotTx(tx,tenantId) {
   });
   const audit=(await rows(tx,'SELECT * FROM audit WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel);
   const catalog=(await rows(tx,'SELECT * FROM package_templates WHERE tenant_id=$1 ORDER BY active DESC,name,id',[tenantId])).map(camel);
-  return {clients,packages,interventions,audit,catalog};
+  const quotes=(await rows(tx,'SELECT * FROM quotes WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel);
+  return {clients,packages,interventions,audit,catalog,quotes};
 }
 
 export async function snapshot(store,actor) {
@@ -61,7 +64,7 @@ export async function snapshot(store,actor) {
       state.packages=state.packages.filter(p=>state.interventions.some(i=>i.packageId===p.id));
       state.clients=state.clients.filter(c=>state.packages.some(p=>p.clientId===c.id));
       state.audit=[];
-      state.catalog=[];
+      state.catalog=[];state.quotes=[];
     }
     return {...state,company:camel(tenant)};
   });
@@ -85,7 +88,9 @@ export async function mutate(store,actor,action,input,key) {
     const active=c=>{if(c.archived)fail('Il cliente è archiviato: ripristinalo prima di aggiungere attività.');};
     let before=null,after=null,clientId=null,interventionId=null;
     const reason=String(input.reason||'').trim();
-    if(action==='client') {
+    if(action==='quote'||action==='quote-status') {
+      ({before,after,clientId}=await changeQuote({tx,t,state,input,action,tenant,insert,update}));
+    } else if(action==='client') {
       const value={name:required(input.name),email:String(input.email||'').trim(),phone:String(input.phone||'').trim(),address:String(input.address||'').trim()};
       if(Object.values(value).some(v=>v.length>500))fail('Uno dei campi è troppo lungo.');
       if(value.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.email))fail('Indirizzo email non valido.');

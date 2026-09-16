@@ -43,7 +43,7 @@ const server=createServer(async(req,res)=>{
       if(req.headers['sec-fetch-site']==='cross-site')fail('Origine non consentita.',403);
       if(!req.headers['content-type']?.startsWith('application/json'))fail('Formato richiesta non valido.',415);
       let body='';
-      for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>20000)fail('Richiesta troppo grande.',413);}
+      for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>100000)fail('Richiesta troppo grande.',413);}
       try {input=JSON.parse(body);}catch{fail('Richiesta non valida.');}
       if(!input||Array.isArray(input)||typeof input!=='object')fail('Richiesta non valida.');
     }
@@ -93,7 +93,7 @@ const server=createServer(async(req,res)=>{
       if(req.method==='GET'&&url.pathname==='/api/export') {
         if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
         const state=await snapshot(store,actor),csv=[['Tipo','ID','Cliente','Dati']];
-        for(const type of ['clients','packages','interventions','audit','catalog'])for(const item of state[type])csv.push([type,item.id,item.clientId||'',JSON.stringify(item)]);
+        for(const type of ['clients','packages','interventions','audit','catalog','quotes'])for(const item of state[type])csv.push([type,item.id,item.clientId||'',JSON.stringify(item)]);
         const cell=v=>'"'+String(v).replace(/^[=+@-]/,"'$&").replaceAll('"','""')+'"';
         res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="myclean-esportazione.csv"','Cache-Control':'no-store'});
         return res.end('\ufeff'+csv.map(r=>r.map(cell).join(';')).join('\r\n'));
