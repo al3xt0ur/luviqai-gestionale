@@ -51,7 +51,7 @@ export async function connectStore({ url, path } = {}) {
 
 export async function migrate(store) {
   const sql = await readFile(new URL('./schema.sql', import.meta.url), 'utf8');
-  await store.transaction(async tx => {
+  const run = () => store.transaction(async tx => {
     // Serializza le migrazioni anche con più processi PostgreSQL.
     await tx.query('SELECT pg_advisory_xact_lock(736281)');
     for (const statement of sql.split('-- next')) {
@@ -62,6 +62,18 @@ export async function migrate(store) {
       await tx.query('INSERT INTO schema_version(version) VALUES(3)');
     }
   });
+  for(let attempt=1;;attempt++) {
+    try{return await run();}
+    catch(error){
+      // Nei deploy zero-downtime il vecchio processo può avere una query attiva
+      // mentre il nuovo applica DDL/RLS. PostgreSQL può rilevare un deadlock
+      // transitorio: riprova l'intera transazione dopo un breve backoff.
+      if(error?.code!=='40P01'||attempt>=5)throw error;
+      const delay=250*attempt;
+      console.warn(`Deadlock durante la migrazione; nuovo tentativo ${attempt+1}/5 tra ${delay} ms.`);
+      await new Promise(resolve=>setTimeout(resolve,delay));
+    }
+  }
 }
 
 export const rows = async (db, sql, values = []) => (await db.query(sql, values)).rows;
