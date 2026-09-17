@@ -33,7 +33,7 @@ export function Access({children}:{children:(session:Session,logout:()=>void,hom
     <label>{token?'Nuova password':'Password'}<input name="password" type="password" autoComplete={token?'new-password':'current-password'} required minLength={token?12:undefined} maxLength={200}/></label>
     {error&&<div className="alert error" role="alert">{error}</div>}{message&&<div className="alert success">{message}</div>}
     <button disabled={busy}>{busy?'Attendi…':token?'Aggiorna password':'Accedi'}</button>
-  </form><details><summary>Hai dimenticato la password?</summary><p>Chiedi al gestore dell’app un link di recupero personale. Nella prova locale il link viene generato dal comando di amministrazione e scade dopo 30 minuti; non vengono inviate email.</p></details><small>Realizzata da luviqAI · Versione riservata</small></section></div>;
+  </form><details><summary>Hai dimenticato la password?</summary><p>Chiedi al gestore dell’app un link di recupero personale. Nella prova locale il link viene generato dal comando di amministrazione e scade dopo 30 minuti; non vengono inviate email.</p></details><small>Realizzata da luviqAI · Versione riservata<br/><a href="/privacy.html">Privacy Policy</a> · <a href="/cookie.html">Cookie Policy</a> · <a href="/terms.html">Termini di utilizzo</a></small></section></div>;
 }
 
 export function Account({session,company,team,onSaved,onLogout}:{session:Session;company:any;team:any[];onSaved:()=>Promise<void>;onLogout:()=>void}) {
