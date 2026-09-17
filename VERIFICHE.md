@@ -1,5 +1,12 @@
 # Verifica della demo
 
+## Widget chat — 17 settembre 2026
+
+- Assistente trasformato in widget flottante disponibile nelle sezioni aziendali, con conversazione mantenuta durante la navigazione e riduzione del pannello.
+- Build TypeScript/Vite riuscita. Verifica browser desktop e mobile: consultazione reale senza provider, anteprima e conferma simulate, nessun salvataggio prima del clic, tastiera Esc e ripristino del focus, nessun errore JavaScript o overflow a 390 px.
+- Nessuna modifica al backend o allo schema Supabase. Schermate in `test-results/ai-widget-desktop.png` e `test-results/ai-widget-mobile.png`.
+
+
 ## Assistente AI — 17 settembre 2026
 
 - Build riuscita e 50 test superati su database isolati, senza chiamate reali OpenRouter.

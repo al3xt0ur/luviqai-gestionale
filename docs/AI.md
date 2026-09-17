@@ -1,6 +1,6 @@
 # Assistente AI · prima versione
 
-La sezione Assistente AI è riservata a responsabili e amministratori dentro un'impresa. Le tre consultazioni rapide sono deterministiche e funzionano senza chiave: pacchetti pagati con saldo ≤ 5 ore, fatture emesse scadute e interventi da approvare. Il testo libero usa OpenRouter per riconoscere l'intenzione, cercare clienti per nome e preparare bozze di preventivo.
+Il widget «Chiedi a luviqAI», in basso a destra nelle sezioni aziendali, è riservato a responsabili e amministratori dentro un'impresa. Le tre consultazioni rapide sono deterministiche e funzionano senza chiave: pacchetti pagati con saldo ≤ 5 ore, fatture emesse scadute e interventi da approvare. Il testo libero usa OpenRouter per riconoscere l'intenzione, cercare clienti per nome e preparare bozze di preventivo.
 
 ## Attivazione
 
@@ -21,7 +21,7 @@ Il backend interpreta soltanto un elenco chiuso di azioni: niente SQL, comandi, 
 
 Esempio: «Prepara un preventivo per Casa Aurora: 2 ore di pulizia a 25 euro/ora, IVA 22%». Si devono specificare quantità, prezzo e aliquota; verificare sempre l'anteprima perché il modello può interpretarli male. Data odierna e validità di 30 giorni vengono proposte esplicitamente. La conferma salva una bozza, modificabile da Preventivi, senza inviarla. Il dominio ricalcola gli importi e ricontrolla il cliente al salvataggio.
 
-Le proposte durano 15 minuti, appartengono a utente e azienda e sono conservate solo nella memoria del processo. Un riavvio le invalida: prepararle nuovamente. Doppie conferme concorrenti usano la stessa chiave idempotente nel database, producendo una sola bozza e una voce di storico con autore e motivazione AI. La cronologia della chat è temporanea e si perde uscendo dalla sezione. Ogni messaggio è indipendente; non sono supportati riferimenti a messaggi precedenti.
+Le proposte durano 15 minuti, appartengono a utente e azienda e sono conservate solo nella memoria del processo. Un riavvio le invalida: prepararle nuovamente. Doppie conferme concorrenti usano la stessa chiave idempotente nel database, producendo una sola bozza e una voce di storico con autore e motivazione AI. La cronologia della chat è temporanea: resta disponibile cambiando sezione o riducendo il widget, ma si perde ricaricando la pagina, uscendo dall’account o cambiando impresa. Su telefono il pannello occupa lo schermo; il tasto Riduci chat riporta al gestionale. Invio spedisce il messaggio, Maiusc+Invio aggiunge una riga, Esc riduce il pannello. Ogni messaggio è indipendente; non sono supportati riferimenti a messaggi precedenti.
 
 Limite applicativo di 5 richieste AI/minuto/account, timeout 25 secondi, risultati limitati ai primi 50 con conteggio totale. Limiti e proposte sono locali al processo: un servizio con più repliche richiederà un archivio condiviso. Nessuna tabella o migrazione Supabase aggiunta in questa versione.
 
