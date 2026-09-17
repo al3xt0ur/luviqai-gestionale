@@ -50,11 +50,14 @@ export async function connectStore({ url, path } = {}) {
 }
 
 export async function migrate(store) {
-  const sql = await readFile(new URL('./schema.sql', import.meta.url), 'utf8');
+  const scripts=[
+    await readFile(new URL('./schema.sql', import.meta.url), 'utf8'),
+    await readFile(new URL('./schema-operations.sql', import.meta.url), 'utf8')
+  ];
   await store.transaction(async tx => {
     // Serializza le migrazioni anche con più processi PostgreSQL.
     await tx.query('SELECT pg_advisory_xact_lock(736281)');
-    for (const statement of sql.split('-- next')) {
+    for(const sql of scripts)for (const statement of sql.split('-- next')) {
       if (statement.trim()) await tx.query(statement);
     }
     if(!(await one(tx,'SELECT version FROM schema_version WHERE version=3'))) {
