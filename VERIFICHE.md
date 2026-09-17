@@ -1,5 +1,13 @@
 # Verifica della demo
 
+## Sincronizzazione GitHub e Supabase — 17 settembre 2026
+
+- Copia locale allineata con `origin/main` al commit `c3fa262`, incluse le modifiche di Sol alla gestione fatture.
+- Connessione in sola lettura al progetto Supabase indicato verificata; schema versioni 1–7 e tabella fatture presenti. Nessuna migrazione o modifica ai dati eseguita durante questa verifica.
+- Build TypeScript/Vite riuscita; suite esistente: 47 test superati, zero errori. Connessione remota esclusa esplicitamente durante i test con `DATABASE_URL` vuota; email in anteprima.
+- Questa verifica non certifica un flusso completo delle nuove fatture: non sono presenti test dedicati alle fatture nella suite corrente.
+- Backup precedente alla migrazione escluso da Git insieme a configurazioni riservate e database locali.
+
 ## Amministrazione piattaforma — 15 settembre 2026
 
 Ripresa del 16 settembre: server locale riavviato e accesso dei due amministratori personali verificato sulle API effettive, senza cambiare le password iniziali. Entrambi vedono le due imprese esistenti.

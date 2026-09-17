@@ -17,10 +17,12 @@ Completato anche il pannello amministrativo luviqAI: due account personali con a
 - [x] Catalogo pacchetti configurabile, preventivi con PDF e logo, stati e storico.
 - [x] Email in anteprima/SMTP, risposta cliente con note, notifiche e nuova proposta dopo un rifiuto.
 - [ ] Conversione dei preventivi accettati in pacchetto/intervento.
-- [ ] Fatturazione interna: documenti, scadenze, pagamenti e servizio di fatturazione elettronica.
+- [x] Fatturazione interna: documenti, PDF, scadenze e registrazione pagamenti.
+- [ ] Servizio di fatturazione elettronica.
 - [ ] Assistente AI operativo, autorizzazioni, conferme e tracciamento operazioni.
 - [ ] Account clienti con accesso ai propri dati.
 - [ ] Abbonamenti luviqAI, limiti e incasso ricorrente.
-- [ ] Hosting riservato, PostgreSQL gestito, recupero email, monitoraggio e backup esterni. L’utente ha richiesto di preparare prima tutto in locale.
+- [x] Repository GitHub condiviso e database PostgreSQL su Supabase.
+- [ ] Hosting dell'app, recupero email, monitoraggio e gestione backup esterni.
 
-Nessuna cancellazione definitiva dello storico. Nessun servizio esterno o pagamento reale collegato.
+Nessuna cancellazione definitiva dello storico. Database operativo su Supabase; nessun incasso automatico collegato.

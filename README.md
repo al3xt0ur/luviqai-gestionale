@@ -1,6 +1,6 @@
 # luviqAI · Gestionale servizi
 
-Prima consegna della versione rivendibile a più imprese. My Clean è la prima azienda configurata. React + TypeScript, backend Node.js, PostgreSQL. La prova resta interamente locale: nessun servizio esterno, pagamento o email reale è collegato.
+Prima consegna della versione rivendibile a più imprese. My Clean è la prima azienda configurata. React + TypeScript, backend Node.js, PostgreSQL. Il codice è condiviso su GitHub e il database operativo è PostgreSQL su Supabase. L’applicazione viene avviata localmente; non è stato attivato un incasso automatico.
 
 ## Avvio su Windows
 
@@ -15,7 +15,7 @@ npm.cmd start
 
 Aprire **http://localhost:3000**. Con Node e dipendenze già disponibili si può usare direttamente `node scripts/start.mjs`, che ricompila e avvia. Non dispone di hot reload. Arrestare con Ctrl+C.
 
-Il database locale usa PGlite, un motore PostgreSQL incorporato nel processo Node: non occorre installare PostgreSQL o Docker. Questo serve a provare il prodotto; per l’hosting sarà usato un server PostgreSQL tramite `DATABASE_URL`. Non è stata verificata in questa consegna una connessione a un servizio PostgreSQL remoto.
+Il database operativo usa Supabase, progetto `yxothpsgfddmcqawgzhx`, tramite `DATABASE_URL` nel file riservato `.env`. Il server carica `.env` e poi `.env.mail`. La connessione è stata verificata in sola lettura il 17 settembre 2026. PGlite resta disponibile quando `DATABASE_URL` è assente, per nuove prove locali e test isolati. Per lavorare sul database condiviso verificare sempre che la configurazione Supabase sia presente.
 
 ## Accessi personali
 
@@ -86,13 +86,14 @@ La sezione **Preventivi** consente di creare proposte commerciali per i clienti 
 
 Stati disponibili: bozza, inviato, accettato, rifiutato, annullato. Lo stato “scaduto” è segnalato sui preventivi inviati oltre la validità. L’annullamento è motivato e conserva il documento. Non è disponibile la cancellazione definitiva. Filtri e ricerca trovano numero, cliente e oggetto. CSV, backup e ripristino includono tutti i preventivi e lo storico.
 
-Gli importi sono salvati in centesimi interi, le quantità in centesimi di unità, aliquote e sconti in centesimi di punto percentuale. Arrotondamento commerciale per riga: importo quantità × prezzo al centesimo, poi sconto al centesimo, poi IVA al centesimo; i totali sommano le righe. Le aliquote sono indicate dall’utente, senza suggerire automaticamente il trattamento fiscale. Questa versione gestisce preventivi commerciali semplici in EUR: non emette fatture e non gestisce automaticamente regimi fiscali, ritenute, bollo, firma elettronica o invio al cliente.
+Gli importi sono salvati in centesimi interi, le quantità in centesimi di unità, aliquote e sconti in centesimi di punto percentuale. Arrotondamento commerciale per riga: importo quantità × prezzo al centesimo, poi sconto al centesimo, poi IVA al centesimo; i totali sommano le righe. Le aliquote sono indicate dall’utente, senza suggerire automaticamente il trattamento fiscale. I preventivi commerciali sono in EUR e possono essere inviati via email secondo la configurazione descritta in docs/EMAIL.md. La sezione Fatture gestisce bozze, emissione interna, annullamento, scadenze, registrazione del pagamento e PDF; può partire da un preventivo accettato. Non sono implementati invio SDI, regimi fiscali automatici, ritenute, bollo o firma elettronica.
 
 ## Database e migrazione
 
 Per logo aziendale, email con PDF, risposta cliente e configurazione Gmail consultare [Email e notifiche](docs/EMAIL.md). La modalità corrente è simulazione locale, senza invii reali. Il layout del PDF rivisto con Sol è stato mantenuto.
 
-- Database corrente: **`data/postgres/`**. Contiene dati di tutte le imprese e credenziali con hash.
+- Database corrente: **Supabase**, progetto `yxothpsgfddmcqawgzhx`. Credenziali esclusivamente nella configurazione riservata.
+- Database locale precedente: **`data/postgres/`**, conservato come copia storica; non sincronizzato automaticamente con Supabase.
 - Database precedente: **`data/myclean.sqlite`**, conservato e aperto in sola lettura per l’importazione.
 - L’importazione mantiene ID, dati cliente, pacchetti, minuti, stato degli interventi e storico. Un marcatore impedisce la seconda importazione.
 - Il vecchio file SQLite non riceve più aggiornamenti. Non avviare una vecchia versione dell’app dopo il passaggio.
@@ -125,7 +126,7 @@ node server/index.mjs
 
 Il ripristino rifiuta un database che contiene già imprese. Le password restano quelle del backup; occorre effettuare nuovamente il login. Per tornare al database standard, arrestare e usare `Remove-Item Env:PGLITE_PATH` prima del successivo avvio.
 
-Il medesimo backup logico può alimentare un PostgreSQL esterno vuoto configurando `DATABASE_URL`: schema e vincoli vengono creati prima dell’importazione. Questa strada è predisposta; la prova su un servizio remoto resta da eseguire quando sarà disponibile.
+Il medesimo backup logico può alimentare un PostgreSQL esterno vuoto configurando `DATABASE_URL`: schema e vincoli vengono creati prima dell’importazione. La migrazione operativa a Supabase è stata effettuata; non ripetere il ripristino sul database condiviso. Gli script amministrativi leggono le variabili del processo: per usare la configurazione `.env`, avviarli con `node --env-file=.env scripts/database.mjs ...`.
 
 ## Creazione impresa e recupero password
 
