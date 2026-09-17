@@ -1,0 +1,27 @@
+name: Test e build
+
+on:
+  push:
+    branches: [main, codex/operational-workflows]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ''
+      OPENROUTER_API_KEY: ''
+      MAIL_MODE: preview
+      BOOTSTRAP_DEMO: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: corepack enable
+      - run: corepack prepare pnpm@11 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm build
