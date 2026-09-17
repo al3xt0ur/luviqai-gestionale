@@ -37,6 +37,8 @@ Per trasferire anche i dati, usare un backup logico e la procedura del README su
 
 ## Stato funzionale
 
+- Assistente AI iniziale: `server/ai.mjs`, `src/assistant.tsx`, `docs/AI.md`. OpenRouter interpreta il solo testo della richiesta; risultati costruiti dal backend e proposte di preventivo soggette a conferma idempotente. Chiave privata ancora da configurare al momento della consegna. Nessuna migrazione aggiuntiva.
+
 - Imprese separate, amministratori della piattaforma, responsabili e operatori con permessi nel backend.
 - Clienti archiviabili, catalogo pacchetti personalizzabile, disponibilità in minuti, interventi, rettifiche motivate, storico e backup.
 - Preventivi con importi in centesimi, PDF con logo aziendale e layout rivisto con Sol, documenti immutabili dopo l'invio.

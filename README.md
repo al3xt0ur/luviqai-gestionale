@@ -173,4 +173,6 @@ node tests/browser-quotes.mjs
 
 ## Fasi successive
 
+È disponibile una prima versione di **Assistente AI**: consultazioni rapide, ricerca clienti e preparazione di bozze di preventivo con conferma. Il testo libero richiede una chiave OpenRouter privata; configurazione, limiti e trattamento dei dati sono descritti in [Assistente AI](docs/AI.md). Non esegue invii, pagamenti o approvazioni automatiche.
+
 Fatturazione elettronica, conversione automatica dei preventivi accettati in pacchetti, assistente AI operativo, account clienti e abbonamenti luviqAI non sono ancora implementati. Questa consegna prepara la base per più imprese e consolida i pacchetti ore. Il nome commerciale definitivo è ancora da scegliere; per ora è usato “luviqAI · Gestionale servizi”. La documentazione della prima demo è conservata in `docs/DEMO_V1.md` solo come riferimento storico.

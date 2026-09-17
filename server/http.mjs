@@ -11,6 +11,8 @@ import { backupStore } from './backup.mjs';
 import {requireAdmin,platformState,switchCompany,createCompany,suspendCompany,adminProfile,resetCompanyUser} from './platform.mjs';
 import {quotePDF} from './quote-pdf.mjs';
 import {invoicePDF} from './invoice-pdf.mjs';
+import {createAssistant} from './ai.mjs';
+const assistant=createAssistant();
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const production=process.env.NODE_ENV==='production';
@@ -100,6 +102,9 @@ const server=createServer(async(req,res)=>{
         const context=req.headers['x-tenant-context']||url.searchParams.get('company');
         if(actor.tenantId===actor.homeTenantId||context!==actor.tenantId)fail('Seleziona l’azienda dal pannello amministrativo. Se hai cambiato azienda in un’altra scheda, ricarica questa pagina.',409);
       }
+      if(req.method==='GET'&&url.pathname==='/api/ai/status')return send(200,assistant.status(actor));
+      if(req.method==='POST'&&url.pathname==='/api/ai/chat')return send(200,await assistant.ask(store,actor,input));
+      if(req.method==='POST'&&url.pathname==='/api/ai/confirm')return send(200,await assistant.confirm(store,actor,input));
       if(req.method==='POST'&&url.pathname==='/api/quote-email')return send(200,await queueQuote(store,actor,input,req.headers['idempotency-key'],mailSettings));
       if(req.method==='GET'&&url.pathname==='/api/mail')return send(200,await mailState(store,actor,mailSettings));
       if(req.method==='POST'&&url.pathname==='/api/notification-read')return send(200,await readNotification(store,actor,input.id));

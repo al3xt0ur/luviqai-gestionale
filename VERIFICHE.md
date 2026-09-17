@@ -1,5 +1,12 @@
 # Verifica della demo
 
+## Assistente AI — 17 settembre 2026
+
+- Build riuscita e 50 test superati su database isolati, senza chiamate reali OpenRouter.
+- Verificati permessi, isolamento tra aziende e utenti, consenso, errori provider, minimizzazione dei dati trasmessi, scadenza delle proposte e conferme concorrenti con una sola bozza e una sola voce di storico.
+- API verificate per autenticazione e CSRF; percorso browser desktop/mobile verificato senza chiave con consultazione reale e nessun errore JavaScript.
+- Il testo libero e la qualità del modello reale restano da provare dopo la configurazione della chiave OpenRouter. Le schermate sono in `test-results/ai-desktop.png` e `test-results/ai-mobile.png` (non versionate).
+
 ## Sincronizzazione GitHub e Supabase — 17 settembre 2026
 
 - Copia locale allineata con `origin/main` al commit `c3fa262`, incluse le modifiche di Sol alla gestione fatture.

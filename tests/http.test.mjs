@@ -30,6 +30,11 @@ test('HTTP autenticato: isolamento, CSRF, duplicati concorrenti, cookie, export 
     const authB=await request('login',{slug:'seconda',email:'admin@example.com',password});
     const b={cookie:authB.cookie.split(';')[0],csrf:authB.body.csrf};
     assert.equal((await request('client',{name:'Senza CSRF'},a,undefined,false)).status,403);
+    assert.equal((await get('ai/status')).status,401);
+    assert.equal((await get('ai/status',a)).status,200);
+    assert.equal((await request('ai/chat',{quick:'pending_jobs'},a,undefined,false)).status,403);
+    assert.equal((await request('ai/chat',{quick:'pending_jobs'},a)).status,200);
+    assert.equal((await request('ai/confirm',{token:'invented',confirm:true},a)).status,404);
     const c=await request('client',{name:'Privato A'},a);assert.equal(c.status,200);
     assert.equal(JSON.parse((await get('state',b)).text).clients.length,0);
     assert.equal((await request('client',{id:c.body.value.id,name:'Attacco'},b)).status,404);
@@ -40,6 +45,7 @@ test('HTTP autenticato: isolamento, CSRF, duplicati concorrenti, cookie, export 
     const pdf=await fetch(url+'/api/quotes/'+quote.id+'/pdf',{headers:{Cookie:a.cookie}});assert.equal(pdf.status,200);assert.equal(pdf.headers.get('content-type'),'application/pdf');assert(pdf.headers.get('content-disposition').includes('attachment'));assert.equal((await pdf.text()).slice(0,5),'%PDF-');
     await request('user',{name:'Operatore PDF',email:'op@example.com',password,role:'operator'},a);
     const op=await request('login',{slug:'prima',email:'op@example.com',password});assert.equal((await get('quotes/'+quote.id+'/pdf',{cookie:op.cookie.split(';')[0]})).status,403);
+    assert.equal((await get('ai/status',{cookie:op.cookie.split(';')[0]})).status,403);
     const model=(await request('template',{name:'Offerta HTTP',minutes:1200,rule:'team'},a)).body.value;
     const p=(await request('package',{clientId:c.body.value.id,templateId:model.id,templateRevision:model.revision,initial:120,paid:true},a)).body.value;
     const item={packageId:p.id,date:new Date(Date.now()-10000).toISOString(),duration:120,operators:2,status:'pending',service:'Test',team:'T'};

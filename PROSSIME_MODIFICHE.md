@@ -19,7 +19,8 @@ Completato anche il pannello amministrativo luviqAI: due account personali con a
 - [ ] Conversione dei preventivi accettati in pacchetto/intervento.
 - [x] Fatturazione interna: documenti, PDF, scadenze e registrazione pagamenti.
 - [ ] Servizio di fatturazione elettronica.
-- [ ] Assistente AI operativo, autorizzazioni, conferme e tracciamento operazioni.
+- [x] Assistente AI iniziale: consultazioni e bozze preventivi con conferma, permessi e storico.
+- [ ] Attivazione chiave OpenRouter, valutazione del modello reale ed estensione delle operazioni AI.
 - [ ] Account clienti con accesso ai propri dati.
 - [ ] Abbonamenti luviqAI, limiti e incasso ricorrente.
 - [x] Repository GitHub condiviso e database PostgreSQL su Supabase.
