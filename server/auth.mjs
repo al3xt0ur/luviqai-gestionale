@@ -86,10 +86,24 @@ export async function manageUser(store,actor,input) {
       before=await one(tx,'SELECT id,name,email,role,active FROM users WHERE tenant_id=$1 AND id=$2',[actor.tenantId,input.id]);
       if(!before)fail('Utente non trovato.',404);
       if(before.role==='platform_admin')fail('Gli amministratori della piattaforma si gestiscono dal pannello luviqAI.',403);
-      if(input.id===actor.id)fail('Non puoi disattivare il tuo account.');
-      if(typeof input.active!=='boolean')fail('Stato utente non valido.');
-      after=await one(tx,'UPDATE users SET active=$3 WHERE tenant_id=$1 AND id=$2 RETURNING id,name,email,role,active',[actor.tenantId,input.id,input.active]);
-      await tx.query('DELETE FROM sessions WHERE user_id=$1',[input.id]);
+      if(input.id===actor.id)fail('Gestisci il tuo account dalla sezione personale.');
+      if(input.mode==='update') {
+        const name=required(input.name),email=required(input.email).toLowerCase();
+        if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email))fail('Email non valida.');
+        if(!['manager','operator'].includes(input.role))fail('Ruolo non valido.');
+        if(await one(tx,'SELECT id FROM users WHERE tenant_id=$1 AND email=$2 AND id<>$3',[actor.tenantId,email,input.id]))fail('Email già presente in questa azienda.');
+        after=await one(tx,'UPDATE users SET name=$3,email=$4,role=$5 WHERE tenant_id=$1 AND id=$2 RETURNING id,name,email,role,active',[actor.tenantId,input.id,name,email,input.role]);
+        await tx.query('DELETE FROM sessions WHERE user_id=$1',[input.id]);
+      } else if(input.mode==='reset-password') {
+        if(!passwordHash)fail('Inserire una nuova password.');
+        after=await one(tx,'UPDATE users SET password_hash=$3 WHERE tenant_id=$1 AND id=$2 RETURNING id,name,email,role,active',[actor.tenantId,input.id,passwordHash]);
+        await tx.query('DELETE FROM sessions WHERE user_id=$1',[input.id]);
+        await tx.query('DELETE FROM resets WHERE user_id=$1',[input.id]);
+      } else {
+        if(typeof input.active!=='boolean')fail('Stato utente non valido.');
+        after=await one(tx,'UPDATE users SET active=$3 WHERE tenant_id=$1 AND id=$2 RETURNING id,name,email,role,active',[actor.tenantId,input.id,input.active]);
+        await tx.query('DELETE FROM sessions WHERE user_id=$1',[input.id]);
+      }
     } else {
       const email=required(input.email).toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))fail('Email non valida.');
       if(!['manager','operator'].includes(input.role))fail('Ruolo non valido.');
@@ -97,7 +111,7 @@ export async function manageUser(store,actor,input) {
       if(await one(tx,'SELECT id FROM users WHERE tenant_id=$1 AND email=$2',[actor.tenantId,email]))fail('Email già presente in questa azienda.');
       after=await one(tx,'INSERT INTO users(id,tenant_id,name,email,role,password_hash,created) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,name,email,role,active',[randomUUID(),actor.tenantId,required(input.name),email,input.role,passwordHash,now()]);
     }
-    await insert(tx,actor.tenantId,'audit',{date:now(),author:actor.name,authorId:actor.id,action:'user',clientId:null,interventionId:null,beforeValue:JSON.stringify(before),afterValue:JSON.stringify(after),reason:input.id?'Stato account modificato':'Account creato'});
+    await insert(tx,actor.tenantId,'audit',{date:now(),author:actor.name,authorId:actor.id,action:'user',clientId:null,interventionId:null,beforeValue:JSON.stringify(before),afterValue:JSON.stringify(after),reason:input.id?(input.mode==='update'?'Profilo account modificato':input.mode==='reset-password'?'Password account reimpostata':'Stato account modificato'):'Account creato'});
     return {ok:true};
   });
 }
