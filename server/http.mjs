@@ -1,4 +1,4 @@
-import {mailConfig,queueQuote,mailState,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
+import {mailConfig,queueQuote,queueAccountWelcome,mailState,mailSettings,saveMailSettings,queueMailTest,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
@@ -91,7 +91,7 @@ const server=createServer(async(req,res)=>{
         if(req.method==='GET'&&action==='users')return send(200,await team(store,{tenantId:url.searchParams.get('company')}));
         if(req.method==='POST') {
           if(action==='switch')return send(200,await switchCompany(store,actor,input));
-          if(action==='create')return send(200,await createCompany(store,actor,input,req.headers['idempotency-key']));
+          if(action==='create'){const result=await createCompany(store,actor,input,req.headers['idempotency-key']);const welcome=await queueAccountWelcome(store,actor,result.user,mailSettings,result.tenantId);return send(200,{...result,welcome});}
           if(action==='status')return send(200,await suspendCompany(store,actor,input));
           if(action==='profile')return send(200,await adminProfile(store,actor,input));
           if(action==='reset-user')return send(200,await resetCompanyUser(store,actor,input));
@@ -107,6 +107,9 @@ const server=createServer(async(req,res)=>{
       if(req.method==='POST'&&url.pathname==='/api/ai/confirm')return send(200,await assistant.confirm(store,actor,input));
       if(req.method==='POST'&&url.pathname==='/api/quote-email')return send(200,await queueQuote(store,actor,input,req.headers['idempotency-key'],mailSettings));
       if(req.method==='GET'&&url.pathname==='/api/mail')return send(200,await mailState(store,actor,mailSettings));
+      if(req.method==='GET'&&url.pathname==='/api/mail-settings')return send(200,await mailSettings(store,actor,mailSettings));
+      if(req.method==='POST'&&url.pathname==='/api/mail-settings')return send(200,await saveMailSettings(store,actor,input));
+      if(req.method==='POST'&&url.pathname==='/api/mail-settings/test')return send(200,await queueMailTest(store,actor,input,mailSettings));
       if(req.method==='POST'&&url.pathname==='/api/notification-read')return send(200,await readNotification(store,actor,input.id));
       if(req.method==='POST'&&url.pathname==='/api/mail-cancel')return send(200,await cancelAttempt(store,actor,input));
       const messageMatch=url.pathname.match(/^\/api\/mail\/([a-f0-9-]{36})(\/eml)?$/);
@@ -115,7 +118,7 @@ const server=createServer(async(req,res)=>{
         const state=await snapshot(store,actor);
         return send(200,{...state,team:actor.role!=='operator'?await team(store,actor):[]});
       }
-      if(req.method==='POST'&&url.pathname==='/api/user')return send(200,await manageUser(store,actor,input));
+      if(req.method==='POST'&&url.pathname==='/api/user'){const result=await manageUser(store,actor,input);if(result.created)result.welcome=await queueAccountWelcome(store,actor,result.user,mailSettings);return send(200,result);}
       const invoicePdfMatch=url.pathname.match(/^\/api\/invoices\/(\d+)\/pdf$/);
       if(req.method==='GET'&&invoicePdfMatch){
         if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
