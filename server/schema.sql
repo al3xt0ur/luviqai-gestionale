@@ -301,3 +301,11 @@ DO $$ BEGIN
   CREATE POLICY tenant_isolation ON tenant_mail_settings TO luviq_tenant USING(tenant_id=current_setting('app.tenant_id',true)) WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
  END IF;
 END $$
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=10) THEN
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_kind_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_kind_check CHECK(kind IN ('quote','response','account','test','platform'));
+  INSERT INTO schema_version(version) VALUES(10);
+ END IF;
+END $$
