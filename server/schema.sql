@@ -309,3 +309,17 @@ DO $$ BEGIN
   INSERT INTO schema_version(version) VALUES(10);
  END IF;
 END $$
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=11) THEN
+  ALTER TABLE mail_messages ADD COLUMN IF NOT EXISTS invoice_id integer;
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_kind_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_kind_check CHECK(kind IN ('quote','response','account','test','platform','invoice'));
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='mail_messages_invoice_fk') THEN
+    ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_invoice_fk FOREIGN KEY(tenant_id,invoice_id) REFERENCES invoices(tenant_id,id);
+  END IF;
+  CREATE INDEX IF NOT EXISTS mail_messages_invoice_idx ON mail_messages(tenant_id,invoice_id,created DESC) WHERE invoice_id IS NOT NULL;
+  INSERT INTO schema_version(version) VALUES(11);
+ END IF;
+END $$
