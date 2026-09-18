@@ -1,4 +1,4 @@
-import {mailConfig,queueQuote,queueAccountWelcome,mailState,mailSettings,saveMailSettings,queueMailTest,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
+import {mailConfig,queueQuote,queueAccountWelcome,mailState,mailSettings as getMailSettings,saveMailSettings,queueMailTest,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
@@ -107,7 +107,7 @@ const server=createServer(async(req,res)=>{
       if(req.method==='POST'&&url.pathname==='/api/ai/confirm')return send(200,await assistant.confirm(store,actor,input));
       if(req.method==='POST'&&url.pathname==='/api/quote-email')return send(200,await queueQuote(store,actor,input,req.headers['idempotency-key'],mailSettings));
       if(req.method==='GET'&&url.pathname==='/api/mail')return send(200,await mailState(store,actor,mailSettings));
-      if(req.method==='GET'&&url.pathname==='/api/mail-settings')return send(200,await mailSettings(store,actor,mailSettings));
+      if(req.method==='GET'&&url.pathname==='/api/mail-settings')return send(200,await getMailSettings(store,actor,mailSettings));
       if(req.method==='POST'&&url.pathname==='/api/mail-settings')return send(200,await saveMailSettings(store,actor,input));
       if(req.method==='POST'&&url.pathname==='/api/mail-settings/test')return send(200,await queueMailTest(store,actor,input,mailSettings));
       if(req.method==='POST'&&url.pathname==='/api/notification-read')return send(200,await readNotification(store,actor,input.id));
