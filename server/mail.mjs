@@ -12,6 +12,51 @@ const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const money=v=>new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(v/100);
 const manager=actor=>{if(!['manager','platform_admin'].includes(actor.role))fail('Operazione riservata al responsabile.',403);};
 
+function platformEmailHtml({subject,message,publicOrigin}){
+ const safeSubject=escape(subject),safeMessage=escape(message).replaceAll('\n','<br>');
+ const logo='✳';
+ return `<!doctype html>
+<html>
+<body style="margin:0;padding:0;background:#f3f7f6;font-family:Arial,Helvetica,sans-serif;color:#173b42">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f7f6;padding:32px 12px">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #dce7e4;border-radius:16px;overflow:hidden">
+        <tr>
+          <td style="background:#124a50;padding:24px 28px;color:#ffffff">
+            <div style="font-size:28px;line-height:1;font-weight:700">${logo} <span style="vertical-align:middle">luviqAI</span></div>
+            <div style="margin-top:7px;font-size:13px;opacity:.88;letter-spacing:.3px">Gestionale servizi</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px 30px 10px">
+            <h1 style="margin:0 0 22px;font-size:24px;line-height:1.25;color:#173b42">${safeSubject}</h1>
+            <div style="font-size:16px;line-height:1.7;color:#294f55">${safeMessage}</div>
+            <div style="margin-top:30px;padding-top:22px;border-top:1px solid #e5eeeb">
+              <p style="margin:0 0 4px;font-size:15px;color:#294f55">Un saluto,</p>
+              <p style="margin:0;font-size:16px;font-weight:700;color:#173b42">Il team luviqAI</p>
+              <p style="margin:4px 0 0;font-size:13px;color:#6b8589">luviqAI · Gestionale servizi</p>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px 30px 28px">
+            <a href="${escape(publicOrigin)}" style="display:inline-block;background:#176653;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:12px 18px;border-radius:8px">Apri luviqAI</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f8fbfa;padding:18px 30px;border-top:1px solid #e5eeeb;font-size:12px;line-height:1.5;color:#789095">
+            Questa comunicazione è stata inviata tramite luviqAI.<br>
+            <a href="${escape(publicOrigin)}" style="color:#176653;text-decoration:none">${escape(publicOrigin)}</a>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+
 export function mailConfig(env=process.env,origin='http://localhost:3000'){
  const mode=env.MAIL_MODE||'preview';if(!['preview','smtp','resend'].includes(mode))throw Error('MAIL_MODE deve essere preview, smtp o resend.');
  const publicOrigin=env.PUBLIC_APP_URL||origin;
@@ -53,7 +98,7 @@ export async function queueMailTest(store,actor,input,config){
   const recipient=String(input.recipient||actor.email||'').trim().toLowerCase();if(!email(recipient))fail('Destinatario di prova non valido.');
   const subject=`${tenant.name} - Email di prova luviqAI`;
   const text=`Questa è una email di prova inviata da ${tenant.name} tramite luviqAI.\n\nMittente configurato: ${identity.senderName} <${identity.senderEmail}>\nReply-To: ${identity.replyTo}`;
-  const html=`<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#163b43"><h2>Email di prova</h2><p>La configurazione email di <b>${escape(tenant.name)}</b> è stata utilizzata da luviqAI.</p><p><b>Mittente:</b> ${escape(identity.senderName)} &lt;${escape(identity.senderEmail)}&gt;</p><p><b>Reply-To:</b> ${escape(identity.replyTo)}</p></div>`;
+  const html=platformEmailHtml({subject,message:text,publicOrigin:config.publicOrigin});
   const id=await addMessage(tx,actor.tenantId,null,'test',config,recipient,subject,{text,html,companyName:tenant.name,...identity});
   return {ok:true,mailId:id,mode:config.mode};
  });
@@ -76,7 +121,7 @@ export async function queuePlatformMail(store,actor,input,config){
  const subject=test?'luviqAI - Email di prova':required(input.subject,200);
  const message=test?'Questa è una email di prova inviata dal pannello di amministrazione di luviqAI.':required(input.message,5000);
  return tenantTransaction(store,actor.homeTenantId,async tx=>{
-  const html=`<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#163b43"><h2>${escape(subject)}</h2><p>${escape(message).replaceAll('\\n','<br>')}</p><p style="margin-top:28px;color:#567">luviqAI · Gestionale servizi</p></div>`;
+  const html=platformEmailHtml({subject,message,publicOrigin:config.publicOrigin});
   const id=await addMessage(tx,actor.homeTenantId,null,test?'test':'platform',config,recipient,subject,{text:message,html,companyName:'luviqAI',senderName:config.fromName||'luviqAI',senderEmail:config.from,replyTo:config.from});
   return {ok:true,mailId:id,mode:config.mode};
  });
