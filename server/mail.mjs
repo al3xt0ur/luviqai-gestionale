@@ -4,6 +4,7 @@ import {one,rows,tenantTransaction} from './storage.mjs';
 import {fail,required,integer,camel,insert} from './domain.mjs';
 import {today} from './quotes.mjs';
 import {quotePDF} from './quote-pdf.mjs';
+import {invoicePDF} from './invoice-pdf.mjs';
 
 const stamp=()=>new Date().toISOString();
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -127,9 +128,9 @@ export async function queuePlatformMail(store,actor,input,config){
  });
 }
 async function audit(tx,t,actor,action,q,before,after,reason){await insert(tx,t,'audit',{date:stamp(),author:actor.name,authorId:actor.id||null,action,clientId:q.clientId,interventionId:null,beforeValue:JSON.stringify(before),afterValue:JSON.stringify(after),reason});}
-async function addMessage(tx,t,q,kind,config,recipient,subject,content){
+async function addMessage(tx,t,q,kind,config,recipient,subject,content,invoiceId=null){
  const id=randomUUID(),now=stamp();
- await tx.query('INSERT INTO mail_messages(tenant_id,id,quote_id,kind,mode,status,recipient,subject,content,created,updated) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)',[t,id,q?.id||null,kind,config.mode,'queued',recipient,subject,JSON.stringify(content),now]);
+ await tx.query('INSERT INTO mail_messages(tenant_id,id,quote_id,invoice_id,kind,mode,status,recipient,subject,content,created,updated) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)',[t,id,q?.id||null,invoiceId,kind,config.mode,'queued',recipient,subject,JSON.stringify(content),now]);
  return id;
 }
 
@@ -158,6 +159,63 @@ export async function queueQuote(store,actor,input,key,config){
   await tx.query('INSERT INTO quote_links(token_hash,tenant_id,quote_id,mail_id,expires) VALUES($1,$2,$3,$4,$5)',[hash(token),t,q.id,id,Date.now()+30*86400000]);
   await tx.query('UPDATE quotes SET revision=revision+1,updated=$3 WHERE tenant_id=$1 AND id=$2',[t,q.id,stamp()]);
   await audit(tx,t,actor,'quote-email',q,{status:q.status},{mailId:id,mode:config.mode,recipient},config.mode==='preview'?'Preparazione email simulata, nessun invio reale.':'Invio email richiesto.');
+  const result={ok:true,mailId:id,mode:config.mode};
+  await tx.query('INSERT INTO requests VALUES($1,$2,$3,$4,$5)',[t,actor.id,key,payload,JSON.stringify(result)]);
+  return result;
+ });
+}
+
+export async function queueInvoice(store,actor,input,key,config){
+ manager(actor);required(key,150);
+ return tenantTransaction(store,actor.tenantId,async(tx,tenant)=>{
+  if(!tenant.active)fail('Azienda sospesa.',403);
+  const t=actor.tenantId,payload=JSON.stringify({action:'invoice-email',input});
+  const prior=await one(tx,'SELECT * FROM requests WHERE tenant_id=$1 AND user_id=$2 AND key=$3',[t,actor.id,key]);
+  if(prior){if(prior.payload!==payload)fail('Identificativo richiesta già utilizzato.');return JSON.parse(prior.response);}
+  const invoice=camel(await one(tx,'SELECT * FROM invoices WHERE tenant_id=$1 AND id=$2',[t,integer(input.id,1,1e9)]));
+  if(!invoice?.id)fail('Fattura non trovata.',404);
+  if(invoice.revision!==integer(input.revision,1,1e9))fail('La fattura è stata modificata. Ricarica i dati prima di inviarla.',409);
+  if(!['issued','paid'].includes(invoice.status))fail('Puoi inviare via email solo una fattura emessa o pagata.');
+  if(await one(tx,"SELECT id FROM mail_messages WHERE tenant_id=$1 AND invoice_id=$2 AND kind='invoice' AND status<>'cancelled'",[t,invoice.id]))fail('Esiste già un invio per questa fattura. Controlla Email e notifiche.');
+  const recipient=String(invoice.document?.client?.email||'').trim().toLowerCase();
+  if(!email(recipient))fail('Aggiungi un’email valida al cliente prima di inviare la fattura.');
+  const identity=await tenantIdentity(tx,tenant,config);
+  const pdf=(await invoicePDF(invoice)).toString('base64');
+  const company=invoice.document.company?.name||tenant.name;
+  const due=invoice.dueDate?.split('-').reverse().join('/')||invoice.dueDate;
+  const subject=`${company} - Fattura ${invoice.number}`;
+  const text=`Buongiorno ${invoice.document.client.name},
+
+in allegato trovi la fattura ${invoice.number} relativa a ${invoice.document.title}.
+Totale: ${money(invoice.total)}.
+Scadenza: ${due}.
+
+Per eventuali chiarimenti puoi rispondere direttamente a questa email.
+
+Un saluto,
+${company}`;
+  const html=`<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:auto;background:#ffffff;color:#173b42">
+    <div style="padding:24px 28px;background:${escape(invoice.document.company?.brandColor||'#176653')};color:#ffffff;border-radius:14px 14px 0 0">
+      <div style="font-size:24px;font-weight:700">${escape(company)}</div>
+      <div style="margin-top:5px;font-size:13px;opacity:.9">Fattura ${escape(invoice.number)}</div>
+    </div>
+    <div style="padding:30px 28px;border:1px solid #dce7e4;border-top:0;border-radius:0 0 14px 14px">
+      <p style="font-size:16px;line-height:1.65">Buongiorno ${escape(invoice.document.client.name)},</p>
+      <p style="font-size:16px;line-height:1.65">in allegato trovi la fattura <b>${escape(invoice.number)}</b> relativa a ${escape(invoice.document.title)}.</p>
+      <div style="margin:24px 0;padding:18px;background:#f5f9f8;border-radius:10px">
+        <p style="margin:0 0 8px"><b>Totale:</b> ${escape(money(invoice.total))}</p>
+        <p style="margin:0"><b>Scadenza:</b> ${escape(due)}</p>
+      </div>
+      <p style="font-size:15px;line-height:1.65">Per eventuali chiarimenti puoi rispondere direttamente a questa email.</p>
+      <div style="margin-top:28px;padding-top:20px;border-top:1px solid #e5eeeb">
+        <p style="margin:0 0 4px">Un saluto,</p>
+        <p style="margin:0;font-weight:700">${escape(company)}</p>
+      </div>
+    </div>
+  </div>`;
+  const content={text,html,companyName:company,...identity,attachments:[{filename:invoice.number+'.pdf',content:pdf,encoding:'base64',contentType:'application/pdf'}]};
+  const id=await addMessage(tx,t,null,'invoice',config,recipient,subject,content,invoice.id);
+  await audit(tx,t,actor,'invoice-email',invoice,{status:invoice.status},{mailId:id,mode:config.mode,recipient},config.mode==='preview'?'Preparazione email fattura simulata.':'Invio fattura via email richiesto.');
   const result={ok:true,mailId:id,mode:config.mode};
   await tx.query('INSERT INTO requests VALUES($1,$2,$3,$4,$5)',[t,actor.id,key,payload,JSON.stringify(result)]);
   return result;
