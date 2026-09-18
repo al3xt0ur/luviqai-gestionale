@@ -274,3 +274,30 @@ DO $$ BEGIN
   INSERT INTO schema_version(version) VALUES(8);
  END IF;
 END $$
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=9) THEN
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_kind_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_kind_check CHECK(kind IN ('quote','response','account','test'));
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_mode_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_mode_check CHECK(mode IN ('preview','smtp','resend'));
+  CREATE TABLE IF NOT EXISTS tenant_mail_settings (
+    tenant_id text PRIMARY KEY REFERENCES tenants(id),
+    sender_name text NOT NULL DEFAULT '',
+    sender_email text NOT NULL DEFAULT '',
+    reply_to text NOT NULL DEFAULT '',
+    enabled boolean NOT NULL DEFAULT false,
+    updated text NOT NULL
+  );
+  INSERT INTO schema_version(version) VALUES(9);
+ END IF;
+END $$
+-- next
+GRANT SELECT,INSERT,UPDATE ON tenant_mail_settings TO luviq_tenant
+-- next
+DO $$ BEGIN
+ ALTER TABLE tenant_mail_settings ENABLE ROW LEVEL SECURITY;
+ IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='tenant_mail_settings' AND policyname='tenant_isolation') THEN
+  CREATE POLICY tenant_isolation ON tenant_mail_settings TO luviq_tenant USING(tenant_id=current_setting('app.tenant_id',true)) WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+ END IF;
+END $$
