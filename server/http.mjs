@@ -1,4 +1,4 @@
-import {mailConfig,queueQuote,queueAccountWelcome,mailState,mailSettings as getMailSettings,saveMailSettings,queueMailTest,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
+import {mailConfig,queueQuote,queueAccountWelcome,mailState,mailSettings as getMailSettings,saveMailSettings,queueMailTest,platformMailState,queuePlatformMail,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
@@ -89,12 +89,14 @@ const server=createServer(async(req,res)=>{
         const action=url.pathname.slice('/api/platform/'.length);
         if(req.method==='GET'&&action==='state')return send(200,await platformState(store,actor));
         if(req.method==='GET'&&action==='users')return send(200,await team(store,{tenantId:url.searchParams.get('company')}));
+        if(req.method==='GET'&&action==='mail')return send(200,await platformMailState(store,actor,mailSettings));
         if(req.method==='POST') {
           if(action==='switch')return send(200,await switchCompany(store,actor,input));
           if(action==='create'){const result=await createCompany(store,actor,input,req.headers['idempotency-key']);const welcome=await queueAccountWelcome(store,actor,result.user,mailSettings,result.tenantId);return send(200,{...result,welcome});}
           if(action==='status')return send(200,await suspendCompany(store,actor,input));
           if(action==='profile')return send(200,await adminProfile(store,actor,input));
           if(action==='reset-user')return send(200,await resetCompanyUser(store,actor,input));
+          if(action==='mail')return send(200,await queuePlatformMail(store,actor,input,mailSettings));
         }
         fail('Risorsa non trovata.',404);
       }
