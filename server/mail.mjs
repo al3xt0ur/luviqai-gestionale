@@ -25,7 +25,7 @@ export function mailConfig(env=process.env,origin='http://localhost:3000'){
 async function audit(tx,t,actor,action,q,before,after,reason){await insert(tx,t,'audit',{date:stamp(),author:actor.name,authorId:actor.id||null,action,clientId:q.clientId,interventionId:null,beforeValue:JSON.stringify(before),afterValue:JSON.stringify(after),reason});}
 async function addMessage(tx,t,q,kind,config,recipient,subject,content){
  const id=randomUUID(),now=stamp();
- await tx.query('INSERT INTO mail_messages(tenant_id,id,quote_id,kind,mode,status,recipient,subject,content,created,updated) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)',[t,id,q.id,kind,config.mode,'queued',recipient,subject,JSON.stringify(content),now]);
+ await tx.query('INSERT INTO mail_messages(tenant_id,id,quote_id,kind,mode,status,recipient,subject,content,created,updated) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)',[t,id,q?.id||null,kind,config.mode,'queued',recipient,subject,JSON.stringify(content),now]);
  return id;
 }
 
@@ -59,6 +59,36 @@ export async function queueQuote(store,actor,input,key,config){
  });
 }
 
+export async function queueAccountWelcome(store,actor,user,config){
+ manager(actor);
+ return tenantTransaction(store,actor.tenantId,async(tx,tenant)=>{
+  if(!tenant.active)fail('Azienda sospesa.',403);
+  const recipient=String(user.email||'').trim();if(!email(recipient))fail('Email account non valida.');
+  const role=user.role==='manager'?'Responsabile':'Operatore',link=config.publicOrigin;
+  const subject=`${tenant.name} - Il tuo accesso a luviqAI`;
+  const text=`Ciao ${user.name},
+
+è stato creato il tuo account su luviqAI · Gestionale servizi.
+
+Azienda: ${tenant.name}
+Codice azienda: ${tenant.slug}
+Email di accesso: ${recipient}
+Ruolo: ${role}
+
+Accedi da:
+${link}
+
+Per sicurezza la password iniziale non viene inviata via email. Ti verrà comunicata separatamente dal responsabile della tua azienda.
+
+Al primo accesso puoi modificare la password dalla sezione Azienda e account.
+
+luviqAI · Gestionale servizi`;
+  const html=`<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#163b43"><h2>Benvenuto su luviqAI</h2><p>Ciao ${escape(user.name)},</p><p>è stato creato il tuo account per <b>${escape(tenant.name)}</b>.</p><div style="padding:16px;border:1px solid #dce6e8;border-radius:8px"><p><b>Codice azienda:</b> ${escape(tenant.slug)}</p><p><b>Email:</b> ${escape(recipient)}</p><p><b>Ruolo:</b> ${escape(role)}</p></div><p><a href="${escape(link)}" style="display:inline-block;padding:14px 22px;background:#176653;color:white;text-decoration:none;border-radius:6px">Accedi a luviqAI</a></p><p>Per sicurezza la password iniziale non viene inviata via email: ti verrà comunicata separatamente dal responsabile della tua azienda.</p><p>Al primo accesso puoi modificarla dalla sezione <b>Azienda e account</b>.</p></div>`;
+  const id=await addMessage(tx,actor.tenantId,null,'account',config,recipient,subject,{text,html,link,companyName:'luviqAI'});
+  return {ok:true,mailId:id,mode:config.mode};
+ });
+}
+
 export async function mailState(store,actor,config){
  manager(actor);return tenantTransaction(store,actor.tenantId,async tx=>({mode:config.mode,publicOrigin:config.publicOrigin,from:config.from,
   messages:(await rows(tx,'SELECT id,quote_id,kind,mode,status,recipient,subject,created,updated,error FROM mail_messages WHERE tenant_id=$1 ORDER BY created DESC',[actor.tenantId])).map(camel),
@@ -82,9 +112,12 @@ export async function cancelAttempt(store,actor,input){
   const t=actor.tenantId,m=await one(tx,'SELECT * FROM mail_messages WHERE tenant_id=$1 AND id=$2',[t,input.id]);
   if(!m)fail('Invio non trovato.',404);if(!['uncertain','queued'].includes(m.status))fail('Non è possibile chiudere questo tentativo.');
   await tx.query("UPDATE mail_messages SET status='cancelled',updated=$3 WHERE tenant_id=$1 AND id=$2",[t,m.id,stamp()]);
-  await tx.query('UPDATE quote_links SET revoked=true WHERE tenant_id=$1 AND mail_id=$2',[t,m.id]);
-  const q=camel(await one(tx,'SELECT * FROM quotes WHERE tenant_id=$1 AND id=$2',[t,m.quote_id]));
-  await audit(tx,t,actor,'mail-cancel',q,{mailId:m.id,status:m.status},{status:'cancelled'},input.reason);return {ok:true};
+  if(m.quote_id){
+    await tx.query('UPDATE quote_links SET revoked=true WHERE tenant_id=$1 AND mail_id=$2',[t,m.id]);
+    const q=camel(await one(tx,'SELECT * FROM quotes WHERE tenant_id=$1 AND id=$2',[t,m.quote_id]));
+    await audit(tx,t,actor,'mail-cancel',q,{mailId:m.id,status:m.status},{status:'cancelled'},input.reason);
+  }
+  return {ok:true};
  });
 }
 
