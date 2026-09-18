@@ -323,3 +323,24 @@ DO $$ BEGIN
   INSERT INTO schema_version(version) VALUES(11);
  END IF;
 END $$
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=12) THEN
+  CREATE TABLE IF NOT EXISTS technical_log (
+    id text PRIMARY KEY,
+    date text NOT NULL,
+    method text NOT NULL,
+    path text NOT NULL,
+    status integer NOT NULL,
+    duration_ms integer NOT NULL,
+    tenant_id text,
+    user_id text,
+    error text NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS technical_log_date_idx ON technical_log(date DESC);
+  CREATE INDEX IF NOT EXISTS technical_log_status_idx ON technical_log(status,date DESC);
+  CREATE INDEX IF NOT EXISTS technical_log_tenant_idx ON technical_log(tenant_id,date DESC);
+  INSERT INTO schema_version(version) VALUES(12);
+ END IF;
+END $$
