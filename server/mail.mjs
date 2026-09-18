@@ -59,9 +59,9 @@ export async function queueQuote(store,actor,input,key,config){
  });
 }
 
-export async function queueAccountWelcome(store,actor,user,config){
+export async function queueAccountWelcome(store,actor,user,config,tenantId=actor.tenantId){
  manager(actor);
- return tenantTransaction(store,actor.tenantId,async(tx,tenant)=>{
+ return tenantTransaction(store,tenantId,async(tx,tenant)=>{
   if(!tenant.active)fail('Azienda sospesa.',403);
   const recipient=String(user.email||'').trim();if(!email(recipient))fail('Email account non valida.');
   const role=user.role==='manager'?'Responsabile':'Operatore',link=config.publicOrigin;
@@ -84,7 +84,7 @@ Al primo accesso puoi modificare la password dalla sezione Azienda e account.
 
 luviqAI · Gestionale servizi`;
   const html=`<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#163b43"><h2>Benvenuto su luviqAI</h2><p>Ciao ${escape(user.name)},</p><p>è stato creato il tuo account per <b>${escape(tenant.name)}</b>.</p><div style="padding:16px;border:1px solid #dce6e8;border-radius:8px"><p><b>Codice azienda:</b> ${escape(tenant.slug)}</p><p><b>Email:</b> ${escape(recipient)}</p><p><b>Ruolo:</b> ${escape(role)}</p></div><p><a href="${escape(link)}" style="display:inline-block;padding:14px 22px;background:#176653;color:white;text-decoration:none;border-radius:6px">Accedi a luviqAI</a></p><p>Per sicurezza la password iniziale non viene inviata via email: ti verrà comunicata separatamente dal responsabile della tua azienda.</p><p>Al primo accesso puoi modificarla dalla sezione <b>Azienda e account</b>.</p></div>`;
-  const id=await addMessage(tx,actor.tenantId,null,'account',config,recipient,subject,{text,html,link,companyName:'luviqAI'});
+  const id=await addMessage(tx,tenantId,null,'account',config,recipient,subject,{text,html,link,companyName:'luviqAI'});
   return {ok:true,mailId:id,mode:config.mode};
  });
 }
