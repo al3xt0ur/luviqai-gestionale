@@ -89,7 +89,7 @@ export async function manageUser(store,actor,input) {
       if(input.id===actor.id)fail('Gestisci il tuo account dalla sezione personale.');
       if(input.mode==='update') {
         const name=required(input.name),email=required(input.email).toLowerCase();
-        if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email))fail('Email non valida.');
+        if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))fail('Email non valida.');
         if(!['manager','operator'].includes(input.role))fail('Ruolo non valido.');
         if(await one(tx,'SELECT id FROM users WHERE tenant_id=$1 AND email=$2 AND id<>$3',[actor.tenantId,email,input.id]))fail('Email già presente in questa azienda.');
         after=await one(tx,'UPDATE users SET name=$3,email=$4,role=$5 WHERE tenant_id=$1 AND id=$2 RETURNING id,name,email,role,active',[actor.tenantId,input.id,name,email,input.role]);
