@@ -63,20 +63,20 @@ export async function updatePrivacyRequest(store,actor,input){
 }
 
 const cleanMail=m=>({id:m.id,kind:m.kind,status:m.status,recipient:m.recipient,subject:m.subject,created:m.created,updated:m.updated,error:m.error||'',text:m.content?.text||'',attachments:(m.content?.attachments||[]).map(a=>a.filename)});
-const cleanAudit=a=>({id:a.id,date:a.date,author:a.author,action:a.action,clientId:a.client_id,interventionId:a.intervention_id,reason:a.reason});
+const cleanAudit=a=>({id:a.id,date:a.date,action:a.action,clientId:a.client_id,interventionId:a.intervention_id});
 
 export async function privacyExport(store,actor,id){
  admin(actor);
  const request=await one(store,`SELECT p.*,t.name AS company_name,t.slug AS company_slug FROM privacy_requests p JOIN tenants t ON t.id=p.tenant_id WHERE p.id=$1`,[id]);
  if(!request)fail('Richiesta privacy non trovata.',404);
- if(request.status==='received')fail('Verifica prima l’identità del richiedente.',409);
+ if(!['verified','preparing','ready','delivered','closed'].includes(request.status))fail('Verifica prima l’identità del richiedente e assicurati che la richiesta sia gestibile.',409);
  const t=request.tenant_id;let subject,data;
  if(request.subject_type==='client'){
   subject=await one(store,'SELECT id,name,email,phone,address,archived FROM clients WHERE tenant_id=$1 AND id=$2',[t,Number(request.subject_id)]);
   if(!subject)fail('Interessato non più disponibile.',404);
   const [packages,interventions,quotes,invoices,auditRows,mails,notifications]=await Promise.all([
    rows(store,'SELECT * FROM packages WHERE tenant_id=$1 AND client_id=$2 ORDER BY id',[t,subject.id]),
-   rows(store,'SELECT i.* FROM interventions i JOIN packages p ON p.tenant_id=i.tenant_id AND p.id=i.package_id WHERE i.tenant_id=$1 AND p.client_id=$2 ORDER BY i.date,i.id',[t,subject.id]),
+   rows(store,'SELECT i.id,i.package_id,i.date,i.service,i.duration,i.operators,i.notes,i.status FROM interventions i JOIN packages p ON p.tenant_id=i.tenant_id AND p.id=i.package_id WHERE i.tenant_id=$1 AND p.client_id=$2 ORDER BY i.date,i.id',[t,subject.id]),
    rows(store,'SELECT * FROM quotes WHERE tenant_id=$1 AND client_id=$2 ORDER BY id',[t,subject.id]),
    rows(store,'SELECT * FROM invoices WHERE tenant_id=$1 AND client_id=$2 ORDER BY id',[t,subject.id]),
    rows(store,'SELECT * FROM audit WHERE tenant_id=$1 AND client_id=$2 ORDER BY id',[t,subject.id]),
@@ -88,7 +88,7 @@ export async function privacyExport(store,actor,id){
   subject=await one(store,"SELECT id,name,email,role,active,created FROM users WHERE tenant_id=$1 AND id=$2 AND role<>'platform_admin'",[t,request.subject_id]);
   if(!subject)fail('Interessato non più disponibile.',404);
   const [assigned,auditRows,technical,mails]=await Promise.all([
-   rows(store,'SELECT id,package_id,date,service,duration,operators,notes,status,assigned_user_id FROM interventions WHERE tenant_id=$1 AND assigned_user_id=$2 ORDER BY date,id',[t,subject.id]),
+   rows(store,'SELECT id,date,duration,operators,status FROM interventions WHERE tenant_id=$1 AND assigned_user_id=$2 ORDER BY date,id',[t,subject.id]),
    rows(store,'SELECT * FROM audit WHERE tenant_id=$1 AND author_id=$2 ORDER BY id',[t,subject.id]),
    rows(store,'SELECT date,method,path,status,duration_ms,error FROM technical_log WHERE tenant_id=$1 AND user_id=$2 ORDER BY date DESC LIMIT 5000',[t,subject.id]),
    rows(store,'SELECT * FROM mail_messages WHERE tenant_id=$1 AND lower(recipient)=lower($2) ORDER BY created',[t,subject.email||''])
