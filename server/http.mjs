@@ -13,6 +13,7 @@ import {quotePDF} from './quote-pdf.mjs';
 import {invoicePDF} from './invoice-pdf.mjs';
 import {createAssistant} from './ai.mjs';
 import {recordTechnicalLog,platformMonitoring} from './monitoring.mjs';
+import {privacyState,privacySubjects,createPrivacyRequest,updatePrivacyRequest,privacyExport} from './privacy.mjs';
 const assistant=createAssistant();
 
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -94,6 +95,10 @@ const server=createServer(async(req,res)=>{
         if(req.method==='GET'&&action==='users')return send(200,await team(store,{tenantId:url.searchParams.get('company')}));
         if(req.method==='GET'&&action==='mail')return send(200,await platformMailState(store,actor,mailSettings));
         if(req.method==='GET'&&action==='monitoring')return send(200,await platformMonitoring(store,actor,{mail:mailSettings,storeKind:store.kind}));
+        if(req.method==='GET'&&action==='privacy')return send(200,await privacyState(store,actor));
+        if(req.method==='GET'&&action==='privacy-subjects')return send(200,await privacySubjects(store,actor,url.searchParams.get('company')));
+        const privacyExportMatch=action.match(/^privacy\/([0-9a-f-]{36})\/export$/);
+        if(req.method==='GET'&&privacyExportMatch){const data=await privacyExport(store,actor,privacyExportMatch[1]);const body=JSON.stringify(data,null,2);res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Disposition':`attachment; filename="luviqai-privacy-${privacyExportMatch[1]}.json"`,'Cache-Control':'no-store'});return res.end(body);}
         if(req.method==='POST') {
           if(action==='switch')return send(200,await switchCompany(store,actor,input));
           if(action==='create'){const result=await createCompany(store,actor,input,req.headers['idempotency-key']);const welcome=await queueAccountWelcome(store,actor,result.user,mailSettings,result.tenantId);return send(200,{...result,welcome});}
@@ -101,6 +106,8 @@ const server=createServer(async(req,res)=>{
           if(action==='profile')return send(200,await adminProfile(store,actor,input));
           if(action==='reset-user')return send(200,await resetCompanyUser(store,actor,input));
           if(action==='mail')return send(200,await queuePlatformMail(store,actor,input,mailSettings));
+          if(action==='privacy')return send(200,await createPrivacyRequest(store,actor,input));
+          if(action==='privacy-status')return send(200,await updatePrivacyRequest(store,actor,input));
         }
         fail('Risorsa non trovata.',404);
       }
