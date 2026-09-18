@@ -12,6 +12,7 @@ import {requireAdmin,platformState,switchCompany,createCompany,suspendCompany,ad
 import {quotePDF} from './quote-pdf.mjs';
 import {invoicePDF} from './invoice-pdf.mjs';
 import {createAssistant} from './ai.mjs';
+import {recordTechnicalLog,platformMonitoring} from './monitoring.mjs';
 const assistant=createAssistant();
 
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -37,6 +38,8 @@ const allowedHosts=new Set([...allowedOrigins].map(o=>new URL(o).host));
 const cookie=(token,clear=false)=>`luviq_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${clear?0:28800}${production?'; Secure':''}`;
 
 const server=createServer(async(req,res)=>{
+  const requestStarted=Date.now();let requestPath='';let requestActor=null;let requestError='';
+  res.on('finish',()=>{if(requestPath.startsWith('/api/')&&requestPath!=='/api/health')void recordTechnicalLog(store,{method:req.method,path:requestPath,status:res.statusCode,durationMs:Date.now()-requestStarted,tenantId:requestActor?.tenantId,userId:requestActor?.id,error:requestError});});
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Referrer-Policy','no-referrer');
   res.setHeader('X-Frame-Options','DENY');
@@ -44,7 +47,7 @@ const server=createServer(async(req,res)=>{
   const send=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
   try {
     if(!allowedHosts.has(req.headers.host))return send(403,{error:'Host non consentito.'});
-    const url=new URL(req.url,origin);
+    const url=new URL(req.url,origin);requestPath=url.pathname;
     if(req.method==='GET'&&url.pathname==='/api/health')return send(200,{ok:true});
     let input;
     if(req.method==='POST') {
@@ -73,7 +76,7 @@ const server=createServer(async(req,res)=>{
     }
     if(url.pathname.startsWith('/api/public/quotes/'))fail('Collegamento non valido o scaduto.',404);
     if(url.pathname.startsWith('/api/')) {
-      const actor=await authenticate(store,req.headers.cookie);
+      const actor=await authenticate(store,req.headers.cookie);requestActor=actor;
       if(!actor)fail('Accedi per continuare.',401);
       if(req.method==='POST'&&req.headers['x-csrf-token']!==actor.csrf)fail('Sessione non valida. Ricarica la pagina.',403);
       if(req.method==='GET'&&url.pathname==='/api/me')return send(200,{user:{id:actor.id,tenantId:actor.tenantId,homeTenantId:actor.homeTenantId,name:actor.name,email:actor.email,role:actor.role},csrf:actor.csrf});
@@ -90,6 +93,7 @@ const server=createServer(async(req,res)=>{
         if(req.method==='GET'&&action==='state')return send(200,await platformState(store,actor));
         if(req.method==='GET'&&action==='users')return send(200,await team(store,{tenantId:url.searchParams.get('company')}));
         if(req.method==='GET'&&action==='mail')return send(200,await platformMailState(store,actor,mailSettings));
+        if(req.method==='GET'&&action==='monitoring')return send(200,await platformMonitoring(store,actor,{mail:mailSettings,storeKind:store.kind}));
         if(req.method==='POST') {
           if(action==='switch')return send(200,await switchCompany(store,actor,input));
           if(action==='create'){const result=await createCompany(store,actor,input,req.headers['idempotency-key']);const welcome=await queueAccountWelcome(store,actor,result.user,mailSettings,result.tenantId);return send(200,{...result,welcome});}
@@ -163,7 +167,7 @@ const server=createServer(async(req,res)=>{
     res.end(readFileSync(target));
   } catch(error) {
     const status=error.status||500;
-    if(status===500)console.error('Errore interno:',error.code||error.name);
+    if(status===500){requestError=String(error?.message||error?.code||error?.name||'Errore interno').slice(0,1000);console.error('Errore interno:',error.code||error.name);}
     if(!res.headersSent)send(status,{error:status===500?'Operazione non riuscita. Riprova o contatta il responsabile.':error.message});
     else res.end();
   }
