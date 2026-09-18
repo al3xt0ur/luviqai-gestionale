@@ -63,9 +63,9 @@ export async function createCompany(store,actor,input,key) {
     if(await one(tx,'SELECT id FROM tenants WHERE slug=$1',[slug]))fail('Codice azienda già presente.');
     const tenantId=randomUUID();
     await tx.query('INSERT INTO tenants(id,slug,name,created) VALUES($1,$2,$3,$4)',[tenantId,slug,name,timestamp()]);
-    await tx.query("INSERT INTO users(id,tenant_id,email,name,role,password_hash,created) VALUES($1,$2,$3,$4,'manager',$5,$6)",[randomUUID(),tenantId,email,userName,hash,timestamp()]);
+    const user=await one(tx,"INSERT INTO users(id,tenant_id,email,name,role,password_hash,created) VALUES($1,$2,$3,$4,'manager',$5,$6) RETURNING id,name,email,role,active",[randomUUID(),tenantId,email,userName,hash,timestamp()]);
     await log(tx,actor,'company_create',tenantId,{name,slug,email,userName});
-    return {ok:true};
+    return {ok:true,tenantId,user};
   });
 }
 
