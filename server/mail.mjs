@@ -58,6 +58,29 @@ export async function queueMailTest(store,actor,input,config){
   return {ok:true,mailId:id,mode:config.mode};
  });
 }
+
+export async function platformMailState(store,actor,config){
+ if(actor.role!=='platform_admin')fail('Operazione riservata all’amministratore della piattaforma.',403);
+ return tenantTransaction(store,actor.homeTenantId,async tx=>({
+  mode:config.mode,
+  publicOrigin:config.publicOrigin,
+  from:config.from,
+  fromName:config.fromName||'luviqAI',
+  messages:(await rows(tx,"SELECT id,kind,status,recipient,subject,created,updated,error FROM mail_messages WHERE tenant_id=$1 AND kind IN ('test','platform') ORDER BY created DESC LIMIT 20",[actor.homeTenantId])).map(camel)
+ }));
+}
+export async function queuePlatformMail(store,actor,input,config){
+ if(actor.role!=='platform_admin')fail('Operazione riservata all’amministratore della piattaforma.',403);
+ const recipient=String(input.recipient||'').trim().toLowerCase();if(!email(recipient))fail('Destinatario non valido.');
+ const test=input.test===true;
+ const subject=test?'luviqAI - Email di prova':required(input.subject,200);
+ const message=test?'Questa è una email di prova inviata dal pannello di amministrazione di luviqAI.':required(input.message,5000);
+ return tenantTransaction(store,actor.homeTenantId,async tx=>{
+  const html=`<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#163b43"><h2>${escape(subject)}</h2><p>${escape(message).replaceAll('\\n','<br>')}</p><p style="margin-top:28px;color:#567">luviqAI · Gestionale servizi</p></div>`;
+  const id=await addMessage(tx,actor.homeTenantId,null,test?'test':'platform',config,recipient,subject,{text:message,html,companyName:'luviqAI',senderName:config.fromName||'luviqAI',senderEmail:config.from,replyTo:config.from});
+  return {ok:true,mailId:id,mode:config.mode};
+ });
+}
 async function audit(tx,t,actor,action,q,before,after,reason){await insert(tx,t,'audit',{date:stamp(),author:actor.name,authorId:actor.id||null,action,clientId:q.clientId,interventionId:null,beforeValue:JSON.stringify(before),afterValue:JSON.stringify(after),reason});}
 async function addMessage(tx,t,q,kind,config,recipient,subject,content){
  const id=randomUUID(),now=stamp();
