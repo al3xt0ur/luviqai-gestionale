@@ -344,3 +344,31 @@ DO $$ BEGIN
   INSERT INTO schema_version(version) VALUES(12);
  END IF;
 END $$
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=13) THEN
+  CREATE TABLE IF NOT EXISTS privacy_requests (
+    id text PRIMARY KEY,
+    created text NOT NULL,
+    updated text NOT NULL,
+    tenant_id text NOT NULL REFERENCES tenants(id),
+    subject_type text NOT NULL CHECK(subject_type IN ('client','user')),
+    subject_id text NOT NULL,
+    subject_name text NOT NULL,
+    subject_email text NOT NULL DEFAULT '',
+    requester_name text NOT NULL,
+    requester_email text NOT NULL DEFAULT '',
+    request_type text NOT NULL CHECK(request_type IN ('access','export','rectification','erasure','restriction','objection')),
+    status text NOT NULL CHECK(status IN ('received','verified','preparing','ready','delivered','closed','rejected')),
+    due_at text NOT NULL,
+    notes text NOT NULL DEFAULT '',
+    created_by text NOT NULL,
+    export_generated_at text,
+    delivered_at text
+  );
+  CREATE INDEX IF NOT EXISTS privacy_requests_company_idx ON privacy_requests(tenant_id,created DESC);
+  CREATE INDEX IF NOT EXISTS privacy_requests_status_idx ON privacy_requests(status,due_at);
+  INSERT INTO schema_version(version) VALUES(13);
+ END IF;
+END $$
