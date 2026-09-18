@@ -112,7 +112,7 @@ export async function manageUser(store,actor,input) {
       after=await one(tx,'INSERT INTO users(id,tenant_id,name,email,role,password_hash,created) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,name,email,role,active',[randomUUID(),actor.tenantId,required(input.name),email,input.role,passwordHash,now()]);
     }
     await insert(tx,actor.tenantId,'audit',{date:now(),author:actor.name,authorId:actor.id,action:'user',clientId:null,interventionId:null,beforeValue:JSON.stringify(before),afterValue:JSON.stringify(after),reason:input.id?(input.mode==='update'?'Profilo account modificato':input.mode==='reset-password'?'Password account reimpostata':'Stato account modificato'):'Account creato'});
-    return {ok:true};
+    return {ok:true,user:after,created:!before};
   });
 }
 
