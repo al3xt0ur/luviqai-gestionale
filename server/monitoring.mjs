@@ -44,8 +44,8 @@ export async function platformMonitoring(store,actor,{mail,storeKind}={}){
   email:{ok:['resend','smtp','preview'].includes(mail?.mode),mode:mail?.mode||'unknown',from:mail?.from||''},
   companies,
   sessions,
-  requests,
-  mail24h:mailStats,
+  requests:{total:Number(requests?.total||0),errors:Number(requests?.errors||0),lastHour:Number(requests?.last_hour||0),avgMs:Number(requests?.avg_ms||0),maxMs:Number(requests?.max_ms||0)},
+  mail24h:{total:Number(mailStats?.total||0),sent:Number(mailStats?.sent||0),uncertain:Number(mailStats?.uncertain||0),queued:Number(mailStats?.queued||0)},
   recentErrors:recentErrors.map(r=>({date:r.date,method:r.method,path:r.path,status:Number(r.status),durationMs:Number(r.duration_ms),error:r.error})),
   endpoints:endpoints.map(r=>({path:r.path,calls:Number(r.calls),errors:Number(r.errors),avgMs:Number(r.avg_ms)}))
  };
