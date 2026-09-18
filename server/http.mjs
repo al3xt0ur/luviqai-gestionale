@@ -1,4 +1,4 @@
-import {mailConfig,queueQuote,queueAccountWelcome,mailState,mailSettings as getMailSettings,saveMailSettings,queueMailTest,platformMailState,queuePlatformMail,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
+import {mailConfig,queueQuote,queueInvoice,queueAccountWelcome,mailState,mailSettings as getMailSettings,saveMailSettings,queueMailTest,platformMailState,queuePlatformMail,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
@@ -108,6 +108,7 @@ const server=createServer(async(req,res)=>{
       if(req.method==='POST'&&url.pathname==='/api/ai/chat')return send(200,await assistant.ask(store,actor,input));
       if(req.method==='POST'&&url.pathname==='/api/ai/confirm')return send(200,await assistant.confirm(store,actor,input));
       if(req.method==='POST'&&url.pathname==='/api/quote-email')return send(200,await queueQuote(store,actor,input,req.headers['idempotency-key'],mailSettings));
+      if(req.method==='POST'&&url.pathname==='/api/invoice-email')return send(200,await queueInvoice(store,actor,input,req.headers['idempotency-key'],mailSettings));
       if(req.method==='GET'&&url.pathname==='/api/mail')return send(200,await mailState(store,actor,mailSettings));
       if(req.method==='GET'&&url.pathname==='/api/mail-settings')return send(200,await getMailSettings(store,actor,mailSettings));
       if(req.method==='POST'&&url.pathname==='/api/mail-settings')return send(200,await saveMailSettings(store,actor,input));
