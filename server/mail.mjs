@@ -172,8 +172,9 @@ export async function queueInvoice(store,actor,input,key,config){
   const t=actor.tenantId,payload=JSON.stringify({action:'invoice-email',input});
   const prior=await one(tx,'SELECT * FROM requests WHERE tenant_id=$1 AND user_id=$2 AND key=$3',[t,actor.id,key]);
   if(prior){if(prior.payload!==payload)fail('Identificativo richiesta già utilizzato.');return JSON.parse(prior.response);}
-  const invoice=camel(await one(tx,'SELECT * FROM invoices WHERE tenant_id=$1 AND id=$2',[t,integer(input.id,1,1e9)]));
-  if(!invoice?.id)fail('Fattura non trovata.',404);
+  const raw=await one(tx,'SELECT * FROM invoices WHERE tenant_id=$1 AND id=$2',[t,integer(input.id,1,1e9)]);
+  if(!raw)fail('Fattura non trovata.',404);
+  const invoice=camel(raw);
   if(invoice.revision!==integer(input.revision,1,1e9))fail('La fattura è stata modificata. Ricarica i dati prima di inviarla.',409);
   if(!['issued','paid'].includes(invoice.status))fail('Puoi inviare via email solo una fattura emessa o pagata.');
   if(await one(tx,"SELECT id FROM mail_messages WHERE tenant_id=$1 AND invoice_id=$2 AND kind='invoice' AND status<>'cancelled'",[t,invoice.id]))fail('Esiste già un invio per questa fattura. Controlla Email e notifiche.');
@@ -254,7 +255,7 @@ luviqAI · Gestionale servizi`;
 
 export async function mailState(store,actor,config){
  manager(actor);return tenantTransaction(store,actor.tenantId,async tx=>({mode:config.mode,publicOrigin:config.publicOrigin,from:config.from,mailSettings:camel((await one(tx,'SELECT sender_name,sender_email,reply_to,enabled,updated FROM tenant_mail_settings WHERE tenant_id=$1',[actor.tenantId]))||{}),
-  messages:(await rows(tx,'SELECT id,quote_id,kind,mode,status,recipient,subject,created,updated,error FROM mail_messages WHERE tenant_id=$1 ORDER BY created DESC',[actor.tenantId])).map(camel),
+  messages:(await rows(tx,'SELECT id,quote_id,invoice_id,kind,mode,status,recipient,subject,created,updated,error FROM mail_messages WHERE tenant_id=$1 ORDER BY created DESC',[actor.tenantId])).map(camel),
   notifications:(await rows(tx,'SELECT * FROM notifications WHERE tenant_id=$1 ORDER BY created DESC',[actor.tenantId])).map(camel)
  }));
 }
