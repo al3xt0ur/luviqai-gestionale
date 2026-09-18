@@ -265,3 +265,12 @@ DO $$ BEGIN
 END $$
 -- next
 INSERT INTO schema_version(version) VALUES(7) ON CONFLICT DO NOTHING
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=8) THEN
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_kind_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_kind_check CHECK(kind IN ('quote','response','account'));
+  INSERT INTO schema_version(version) VALUES(8);
+ END IF;
+END $$
