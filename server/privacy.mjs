@@ -76,7 +76,7 @@ export async function privacyExport(store,actor,id){
   if(!subject)fail('Interessato non più disponibile.',404);
   const [packages,interventions,quotes,invoices,auditRows,mails,notifications]=await Promise.all([
    rows(store,'SELECT * FROM packages WHERE tenant_id=$1 AND client_id=$2 ORDER BY id',[t,subject.id]),
-   rows(store,'SELECT i.id,i.package_id,i.date,i.service,i.duration,i.operators,i.notes,i.status FROM interventions i JOIN packages p ON p.tenant_id=i.tenant_id AND p.id=i.package_id WHERE i.tenant_id=$1 AND p.client_id=$2 ORDER BY i.date,i.id',[t,subject.id]),
+   rows(store,`SELECT i.id,i.package_id,i.job_id,i.date,i.service,i.duration,i.operators,i.notes,i.status FROM interventions i LEFT JOIN packages p ON p.tenant_id=i.tenant_id AND p.id=i.package_id LEFT JOIN jobs j ON j.tenant_id=i.tenant_id AND j.id=i.job_id WHERE i.tenant_id=$1 AND coalesce(p.client_id,j.client_id)=$2 ORDER BY i.date,i.id`,[t,subject.id]),
    rows(store,'SELECT * FROM quotes WHERE tenant_id=$1 AND client_id=$2 ORDER BY id',[t,subject.id]),
    rows(store,'SELECT * FROM invoices WHERE tenant_id=$1 AND client_id=$2 ORDER BY id',[t,subject.id]),
    rows(store,'SELECT * FROM audit WHERE tenant_id=$1 AND client_id=$2 ORDER BY id',[t,subject.id]),
