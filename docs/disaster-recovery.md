@@ -39,3 +39,16 @@ Non usare automaticamente questo workflow contro la produzione. Prima:
 - definire retention e destinazione esterna di lungo periodo;
 - usare una `BACKUP_ENCRYPTION_KEY` distinta e stabile;
 - documentare dove sono custodite le variabili d'ambiente necessarie al ripristino.
+
+
+## Produzione
+
+Il workflow `.github/workflows/backup-production.yml` usa una chiave e un collegamento database separati dallo staging.
+
+Repository Actions secrets richiesti:
+- `PRODUCTION_DATABASE_URL`: collegamento PostgreSQL della produzione.
+- `PRODUCTION_BACKUP_ENCRYPTION_KEY`: chiave base64url da 32 byte, distinta dalla chiave staging.
+
+La chiave di produzione va conservata anche in un password manager o secret vault esterno a GitHub: GitHub Actions non consente di rileggere il valore del secret. Senza quella chiave un artifact cifrato non è recuperabile.
+
+Il backup viene verificato con un restore su database temporaneo prima di essere conservato come artifact per 30 giorni.
