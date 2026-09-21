@@ -2,6 +2,8 @@ name: Backup staging cifrato
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '30 1 * * *'
   push:
     branches: [develop]
     paths:
@@ -50,4 +52,4 @@ jobs:
           name: luviqai-staging-backup-${{ github.run_id }}
           path: ${{ env.BACKUP_FILE }}
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
