@@ -1,0 +1,30 @@
+name: Uptime staging
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+  push:
+    branches: [develop]
+    paths:
+      - '.github/workflows/uptime-staging.yml'
+      - 'scripts/check-health.mjs'
+      - 'server/monitoring.mjs'
+      - 'server/http.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    name: Controllo salute staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Verifica staging
+        run: node scripts/check-health.mjs https://staging.luviqai.it/api/health
