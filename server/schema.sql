@@ -397,6 +397,7 @@ DO $$ BEGIN
   );
   CREATE INDEX IF NOT EXISTS jobs_client_idx ON jobs(tenant_id,client_id,status);
   CREATE INDEX IF NOT EXISTS jobs_quote_idx ON jobs(tenant_id,quote_id) WHERE quote_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS jobs_quote_active_unique ON jobs(tenant_id,quote_id) WHERE quote_id IS NOT NULL AND status<>'cancelled';
   CREATE INDEX IF NOT EXISTS jobs_package_idx ON jobs(tenant_id,package_id) WHERE package_id IS NOT NULL;
 
   ALTER TABLE interventions ALTER COLUMN package_id DROP NOT NULL;
