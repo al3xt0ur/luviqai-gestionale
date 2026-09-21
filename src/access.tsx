@@ -12,7 +12,7 @@ export async function post(path:string,input:unknown,csrf?:string,tenantId?:stri
 export function Access({children}:{children:(session:Session,logout:()=>void,home:()=>void)=>ReactNode}) {
   const [session,setSession]=useState<Session|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[resetBusy,setResetBusy]=useState(false),[resetMessage,setResetMessage]=useState(''),[mfaChallenge,setMfaChallenge]=useState('');
   const [token,setToken]=useState(()=>new URLSearchParams(location.hash.slice(1)).get('reset'));
-  useEffect(()=>{fetch('/api/me').then(async r=>{if(r.ok)setSession(await r.json());else if(r.status!==401)throw Error('Server non disponibile.');}).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
+  useEffect(()=>{document.title='luviqAI · Gestionale servizi';fetch('/api/me').then(async r=>{if(r.ok)setSession(await r.json());else if(r.status!==401)throw Error('Server non disponibile.');}).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
   async function logout(){try{if(session)await post('logout',{},session.csrf);}catch{}setSession(null);}
   async function submit(e:React.FormEvent<HTMLFormElement>) {
     e.preventDefault();setBusy(true);setError('');
