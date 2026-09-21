@@ -11,6 +11,7 @@ import { backupStore } from './backup.mjs';
 import {requireAdmin,platformState,switchCompany,createCompany,suspendCompany,adminProfile,resetCompanyUser} from './platform.mjs';
 import {quotePDF} from './quote-pdf.mjs';
 import {invoicePDF} from './invoice-pdf.mjs';
+import {interventionReportPDF} from './intervention-report-pdf.mjs';
 import {createAssistant} from './ai.mjs';
 import {recordTechnicalLog,platformMonitoring,publicHealth} from './monitoring.mjs';
 import {privacyState,privacySubjects,createPrivacyRequest,updatePrivacyRequest,privacyExport} from './privacy.mjs';
@@ -152,6 +153,16 @@ const server=createServer(async(req,res)=>{
         return send(200,{...state,team:actor.role!=='operator'?await team(store,actor):[]});
       }
       if(req.method==='POST'&&url.pathname==='/api/user'){const result=await manageUser(store,actor,input);if(result.created)result.welcome=await queueAccountWelcome(store,actor,result.user,mailSettings);return send(200,result);}
+      const interventionReportMatch=url.pathname.match(/^\/api\/interventions\/(\d+)\/report\.pdf$/);
+      if(req.method==='GET'&&interventionReportMatch){
+        const state=await snapshot(store,actor),intervention=state.interventions.find(i=>i.id===Number(interventionReportMatch[1]));
+        if(!intervention)fail('Intervento non trovato.',404);
+        const client=state.clients.find(c=>c.id===intervention.clientId)||fail('Cliente non trovato.',404);
+        const job=intervention.jobId?state.jobs.find(j=>j.id===intervention.jobId):null;
+        const pdf=await interventionReportPDF({intervention,client,job,company:state.company});
+        res.writeHead(200,{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="rapportino-intervento-'+intervention.id+'.pdf"','Cache-Control':'no-store','Content-Length':pdf.length});
+        return res.end(pdf);
+      }
       const invoicePdfMatch=url.pathname.match(/^\/api\/invoices\/(\d+)\/pdf$/);
       if(req.method==='GET'&&invoicePdfMatch){
         if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
