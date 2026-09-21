@@ -2,6 +2,13 @@ name: Backup staging cifrato
 
 on:
   workflow_dispatch:
+  push:
+    branches: [develop]
+    paths:
+      - '.github/workflows/backup-staging.yml'
+      - 'scripts/secure-backup.mjs'
+      - 'server/backup-crypto.mjs'
+      - 'server/backup.mjs'
 
 permissions:
   contents: read
