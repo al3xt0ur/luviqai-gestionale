@@ -372,3 +372,48 @@ DO $$ BEGIN
   INSERT INTO schema_version(version) VALUES(13);
  END IF;
 END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=14) THEN
+  CREATE TABLE IF NOT EXISTS jobs (
+    tenant_id text NOT NULL REFERENCES tenants(id),
+    id integer NOT NULL,
+    client_id integer NOT NULL,
+    quote_id integer,
+    package_id integer,
+    title text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    status text NOT NULL CHECK(status IN ('draft','planned','active','completed','cancelled')),
+    due_date text,
+    revision integer NOT NULL DEFAULT 1 CHECK(revision>0),
+    created text NOT NULL,
+    updated text NOT NULL,
+    PRIMARY KEY(tenant_id,id),
+    FOREIGN KEY(tenant_id,client_id) REFERENCES clients(tenant_id,id),
+    FOREIGN KEY(tenant_id,quote_id) REFERENCES quotes(tenant_id,id),
+    FOREIGN KEY(tenant_id,package_id) REFERENCES packages(tenant_id,id)
+  );
+  CREATE INDEX IF NOT EXISTS jobs_client_idx ON jobs(tenant_id,client_id,status);
+  CREATE INDEX IF NOT EXISTS jobs_quote_idx ON jobs(tenant_id,quote_id) WHERE quote_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS jobs_package_idx ON jobs(tenant_id,package_id) WHERE package_id IS NOT NULL;
+
+  ALTER TABLE interventions ADD COLUMN IF NOT EXISTS job_id integer;
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='interventions_job_fk') THEN
+    ALTER TABLE interventions ADD CONSTRAINT interventions_job_fk
+      FOREIGN KEY(tenant_id,job_id) REFERENCES jobs(tenant_id,id);
+  END IF;
+  CREATE INDEX IF NOT EXISTS interventions_job_idx ON interventions(tenant_id,job_id,date) WHERE job_id IS NOT NULL;
+
+  GRANT SELECT,INSERT,UPDATE ON jobs TO luviq_tenant;
+  ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
+  IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='jobs' AND policyname='tenant_isolation') THEN
+    CREATE POLICY tenant_isolation ON jobs TO luviq_tenant
+      USING(tenant_id=current_setting('app.tenant_id',true))
+      WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+  END IF;
+
+  INSERT INTO schema_version(version) VALUES(14);
+ END IF;
+END $$
