@@ -223,6 +223,45 @@ ${company}`;
  });
 }
 
+export async function queuePasswordReset(store,reset,config){
+ if(!reset)return {ok:true,queued:false};
+ return tenantTransaction(store,reset.tenantId,async(tx,tenant)=>{
+  if(!tenant.active)return {ok:true,queued:false};
+  const recipient=String(reset.email||'').trim().toLowerCase();if(!email(recipient))return {ok:true,queued:false};
+  const link=config.publicOrigin+'/#reset='+encodeURIComponent(reset.token);
+  const subject='luviqAI - Reimposta la tua password';
+  const text=`Ciao ${reset.name},
+
+abbiamo ricevuto una richiesta per reimpostare la password del tuo account luviqAI.
+
+Azienda: ${reset.tenantName}
+Codice azienda: ${reset.slug}
+
+Apri questo collegamento entro 30 minuti:
+${link}
+
+Se non hai richiesto tu la modifica, ignora questa email. La password attuale resterà valida.
+
+Per sicurezza il collegamento è monouso e tutte le sessioni verranno chiuse dopo il cambio password.
+
+luviqAI · Gestionale servizi`;
+  const html=`<div style="font-family:Arial,Helvetica,sans-serif;max-width:620px;margin:auto;color:#173b42">
+    <div style="background:#124a50;color:white;padding:24px 28px;border-radius:14px 14px 0 0"><div style="font-size:24px;font-weight:700">✳ luviqAI</div><div style="margin-top:5px;font-size:13px;opacity:.9">Gestionale servizi</div></div>
+    <div style="padding:30px 28px;border:1px solid #dce7e4;border-top:0;border-radius:0 0 14px 14px">
+      <h2 style="margin-top:0">Reimposta la tua password</h2>
+      <p>Ciao ${escape(reset.name)},</p>
+      <p>abbiamo ricevuto una richiesta per reimpostare la password del tuo account.</p>
+      <p><b>Azienda:</b> ${escape(reset.tenantName)}<br><b>Codice azienda:</b> ${escape(reset.slug)}</p>
+      <p><a href="${escape(link)}" style="display:inline-block;padding:14px 22px;background:#176653;color:white;text-decoration:none;border-radius:7px;font-weight:700">Scegli una nuova password</a></p>
+      <p>Il collegamento scade tra 30 minuti ed è utilizzabile una sola volta.</p>
+      <p style="color:#6b8589;font-size:13px">Se non hai richiesto tu la modifica, ignora questa email: la password attuale resterà valida.</p>
+    </div>
+  </div>`;
+  const id=await addMessage(tx,reset.tenantId,null,'password_reset',config,recipient,subject,{text,html,link,companyName:'luviqAI',senderName:config.fromName||'luviqAI',senderEmail:config.from,replyTo:config.from});
+  return {ok:true,queued:true,mailId:id,mode:config.mode};
+ });
+}
+
 export async function queueAccountWelcome(store,actor,user,config,tenantId=actor.tenantId){
  manager(actor);
  return tenantTransaction(store,tenantId,async(tx,tenant)=>{
