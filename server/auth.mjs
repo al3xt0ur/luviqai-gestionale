@@ -158,6 +158,7 @@ export async function beginMfaSetup(store,actor){
   return store.transaction(async tx=>{
     const user=await one(tx,'SELECT * FROM users WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[actor.id,tenantId]);
     if(!user)fail('Account non trovato.',404);
+    if(user.mfa_enabled)fail('MFA già attiva. Disattivala prima di configurarla di nuovo.',409);
     const secretValue=base32Encode(randomBytes(20));
     await tx.query('UPDATE users SET mfa_secret_enc=$2,mfa_enabled=false,mfa_recovery=\'[]\'::jsonb WHERE id=$1',[actor.id,encryptMfa(secretValue)]);
     const label=encodeURIComponent('luviqAI:'+user.email),issuer=encodeURIComponent('luviqAI');

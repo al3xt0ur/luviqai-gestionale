@@ -27,6 +27,7 @@ test('MFA TOTP: setup, login challenge, recovery code e disattivazione',async()=
     assert.equal(enabled.ok,true);
     assert.equal(enabled.recoveryCodes.length,8);
     assert.equal((await mfaStatus(db,actor)).enabled,true);
+    await assert.rejects(beginMfaSetup(db,actor),/MFA già attiva/);
 
     const challenged=await login(db,{slug:'mfa-demo',email:user.email,password},'mfa-ip-2');
     assert.equal(challenged.mfaRequired,true);
