@@ -456,3 +456,15 @@ DO $$ BEGIN
   INSERT INTO schema_version(version) VALUES(16);
  END IF;
 END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=17) THEN
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at bigint NOT NULL DEFAULT 0;
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_seen_at bigint NOT NULL DEFAULT 0;
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip_address text NOT NULL DEFAULT '';
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_agent text NOT NULL DEFAULT '';
+  INSERT INTO schema_version(version) VALUES(17);
+ END IF;
+END $$
