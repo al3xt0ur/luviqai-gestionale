@@ -67,14 +67,13 @@ export async function publicHealth(store,{errorThreshold=5,windowMinutes=15}={})
    status:databaseOk?(degraded?'degraded':'ok'):'down',
    checkedAt,
    checks:{database:databaseOk?'ok':'down',recentErrors:degraded?'critical':'ok'},
-   windowMinutes,
-   recentServerErrors:errors
+   windowMinutes
   };
  }catch{
   return {
    ok:false,status:'down',checkedAt,
    checks:{database:'down',recentErrors:'unknown'},
-   windowMinutes,recentServerErrors:null
+   windowMinutes
   };
  }
 }
