@@ -23,7 +23,8 @@ const fields = {
   clients: ['name','email','phone','address','archived'],
   packages: ['clientId','tier','original','initial','rule','paid','renewedFrom','created','templateId','templateRevision','description'],
   package_templates: ['name','description','minutes','rule','active','revision'],
-  interventions: ['packageId','date','service','team','duration','operators','notes','status','assignedUserId'],
+  jobs: ['clientId','quoteId','packageId','title','description','status','dueDate','revision','created','updated'],
+  interventions: ['packageId','jobId','date','service','team','duration','operators','notes','status','assignedUserId'],
   audit: ['date','author','authorId','action','clientId','interventionId','beforeValue','afterValue','reason'],
 };
 const snake=s=>s.replace(/[A-Z]/g,c=>'_'+c.toLowerCase());
@@ -45,7 +46,8 @@ async function update(tx,tenantId,table,id,value) {
 
 export async function snapshotTx(tx,tenantId) {
   const clients=(await rows(tx,'SELECT * FROM clients WHERE tenant_id=$1 ORDER BY name',[tenantId])).map(camel);
-  const interventions=(await rows(tx,'SELECT i.*,p.client_id,p.rule FROM interventions i JOIN packages p ON p.tenant_id=i.tenant_id AND p.id=i.package_id WHERE i.tenant_id=$1 ORDER BY i.date DESC,i.id DESC',[tenantId])).map(camel).map(i=>({...i,cost:i.duration*(i.rule==='operator'?i.operators:1)}));
+  const jobs=(await rows(tx,'SELECT * FROM jobs WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel);
+  const interventions=(await rows(tx,'SELECT i.*,coalesce(p.client_id,j.client_id) AS client_id,p.rule FROM interventions i LEFT JOIN packages p ON p.tenant_id=i.tenant_id AND p.id=i.package_id LEFT JOIN jobs j ON j.tenant_id=i.tenant_id AND j.id=i.job_id WHERE i.tenant_id=$1 ORDER BY i.date DESC,i.id DESC',[tenantId])).map(camel).map(i=>({...i,cost:i.duration*(i.packageId?(i.rule==='operator'?i.operators:1):i.operators)}));
   const packages=(await rows(tx,'SELECT * FROM packages WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel).map(p=>{
     const list=interventions.filter(i=>i.packageId===p.id);
     const consumed=list.filter(i=>i.status==='approved').reduce((s,i)=>s+i.cost,0);
@@ -59,7 +61,7 @@ export async function snapshotTx(tx,tenantId) {
   const mail=(await rows(tx,"SELECT quote_id,status,mode FROM mail_messages WHERE tenant_id=$1 AND kind='quote' AND status<>'cancelled' ORDER BY created DESC",[tenantId]));
   for(const q of quotes){const m=mail.find(m=>m.quote_id===q.id);q.emailStatus=m?.status||null;q.emailMode=m?.mode||null;}
   const unreadNotifications=Number((await one(tx,'SELECT count(*) AS count FROM notifications WHERE tenant_id=$1 AND read_at IS NULL',[tenantId])).count);
-  return {clients,packages,interventions,audit,catalog,quotes,invoices,unreadNotifications};
+  return {clients,packages,jobs,interventions,audit,catalog,quotes,invoices,unreadNotifications};
 }
 
 export async function snapshot(store,actor) {
@@ -68,7 +70,8 @@ export async function snapshot(store,actor) {
     if(actor.role==='operator') {
       state.interventions=state.interventions.filter(i=>i.assignedUserId===actor.id);
       state.packages=state.packages.filter(p=>state.interventions.some(i=>i.packageId===p.id));
-      state.clients=state.clients.filter(c=>state.packages.some(p=>p.clientId===c.id));
+      state.jobs=state.jobs.filter(j=>state.interventions.some(i=>i.jobId===j.id));
+      state.clients=state.clients.filter(c=>state.packages.some(p=>p.clientId===c.id)||state.jobs.some(j=>j.clientId===c.id));
       state.audit=[];
       state.catalog=[];state.quotes=[];state.invoices=[];state.unreadNotifications=0;
     }
@@ -90,10 +93,32 @@ export async function mutate(store,actor,action,input,key) {
     const state=await snapshotTx(tx,t);
     const getC=id=>state.clients.find(c=>c.id===Number(id))||fail('Cliente non trovato.',404);
     const getP=id=>state.packages.find(p=>p.id===Number(id))||fail('Pacchetto non trovato.',404);
+    const getJ=id=>state.jobs.find(j=>j.id===Number(id))||fail('Commessa non trovata.',404);
     const active=c=>{if(c.archived)fail('Il cliente è archiviato: ripristinalo prima di aggiungere attività.');};
     let before=null,after=null,clientId=null,interventionId=null;
     const reason=String(input.reason||'').trim();
-    if(action==='quote'||action==='quote-status') {
+    if(action==='job'||action==='job-status') {
+      before=input.id?getJ(input.id):null;
+      if(before&&integer(input.revision,1,1e9)!==before.revision)fail('La commessa è stata modificata. Ricarica i dati prima di continuare.',409);
+      const now=new Date().toISOString();
+      if(action==='job') {
+        if(before&&!['draft','planned'].includes(before.status))fail('Solo le commesse in bozza o pianificate sono modificabili.');
+        clientId=integer(input.clientId,1,1e9);const client=getC(clientId);active(client);
+        let quote=null,pkg=null;
+        if(input.quoteId){quote=state.quotes.find(q=>q.id===Number(input.quoteId))||fail('Preventivo non trovato.',404);if(quote.clientId!==clientId||quote.status!=='accepted')fail('La commessa può essere collegata solo a un preventivo accettato dello stesso cliente.');}
+        if(input.packageId){pkg=getP(input.packageId);if(pkg.clientId!==clientId)fail('Il pacchetto deve appartenere allo stesso cliente.');}
+        const title=required(input.title,200),description=String(input.description||'').trim();if(description.length>3000)fail('La descrizione non può superare 3000 caratteri.');
+        let dueDate=null;if(input.dueDate){if(typeof input.dueDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(input.dueDate)||!Number.isFinite(Date.parse(input.dueDate)))fail('Data scadenza commessa non valida.');dueDate=input.dueDate;}
+        const value={clientId,quoteId:quote?.id||null,packageId:pkg?.id||null,title,description,dueDate,updated:now,revision:before?before.revision+1:1};
+        after=before?await update(tx,t,'jobs',before.id,value):await insert(tx,t,'jobs',{...value,status:'draft',created:now});
+      } else {
+        if(!before)fail('Commessa non trovata.',404);required(reason,2000);clientId=before.clientId;
+        const transitions={draft:['planned','cancelled'],planned:['active','cancelled'],active:['completed','cancelled'],completed:[],cancelled:[]};
+        if(!transitions[before.status].includes(input.status))fail('Passaggio di stato commessa non consentito.');
+        if(input.status==='completed'&&state.interventions.some(i=>i.jobId===before.id&&['planned','pending'].includes(i.status)))fail('Completa o annulla gli interventi aperti prima di chiudere la commessa.');
+        after=await update(tx,t,'jobs',before.id,{status:input.status,revision:before.revision+1,updated:now});
+      }
+    } else if(action==='quote'||action==='quote-status') {
       ({before,after,clientId}=await changeQuote({tx,t,state,input,action,tenant,insert,update}));
     } else if(action==='client') {
       const value={name:required(input.name),email:String(input.email||'').trim(),phone:String(input.phone||'').trim(),address:String(input.address||'').trim()};
@@ -139,21 +164,27 @@ export async function mutate(store,actor,action,input,key) {
       before=getP(input.id);clientId=before.clientId;active(getC(clientId));if(before.paid)fail('Pagamento già confermato.');
       after=await update(tx,t,'packages',before.id,{paid:1});
     } else if(action==='intervention') {
-      const p=getP(input.packageId);clientId=p.clientId;active(getC(clientId));
-      if(!p.paid)fail('Confermare il pagamento prima di inserire interventi.');
+      let job=input.jobId?getJ(input.jobId):null,p=input.packageId?getP(input.packageId):null;
+      if(job&&['completed','cancelled'].includes(job.status))fail('La commessa non è aperta.');
+      if(!p&&job?.packageId)p=getP(job.packageId);
+      if(!p&&!job)fail('Seleziona una commessa o un pacchetto.');
+      clientId=job?.clientId||p.clientId;active(getC(clientId));
+      if(job&&p&&job.clientId!==p.clientId)fail('Commessa e pacchetto devono appartenere allo stesso cliente.');
+      if(job?.packageId&&p&&job.packageId!==p.id)fail('La commessa è collegata a un altro pacchetto.');
+      if(p&&!p.paid)fail('Confermare il pagamento prima di inserire interventi.');
       const duration=integer(input.duration,1,3600),operators=integer(input.operators,1,100);
       const date=new Date(required(input.date));if(!Number.isFinite(date.getTime()))fail('Data non valida.');
       if(!['planned','pending'].includes(input.status))fail('Stato non valido.');
       if(input.status==='pending'&&date.getTime()>Date.now())fail('Un intervento futuro può essere solo pianificato.');
-      if(duration*(p.rule==='operator'?operators:1)>p.free)fail('Ore libere insufficienti per questo intervento.');
+      if(p&&duration*(p.rule==='operator'?operators:1)>p.free)fail('Ore libere insufficienti per questo intervento.');
       if(input.assignedUserId&&!actor.assignableUserIds?.includes(input.assignedUserId))fail('Operatore non disponibile per questa azienda.');
-      after=await insert(tx,t,'interventions',{packageId:p.id,date:date.toISOString(),service:required(input.service),team:required(input.team),duration,operators,notes:String(input.notes||'').slice(0,3000),status:input.status,assignedUserId:input.assignedUserId||null});
+      after=await insert(tx,t,'interventions',{packageId:p?.id||null,jobId:job?.id||null,date:date.toISOString(),service:required(input.service),team:required(input.team),duration,operators,notes:String(input.notes||'').slice(0,3000),status:input.status,assignedUserId:input.assignedUserId||null});
       interventionId=after.id;
     } else if(['complete','approve','rectify','cancel','reschedule'].includes(action)) {
       before=state.interventions.find(i=>i.id===Number(input.id))||fail('Intervento non trovato.',404);
       if(actor.role==='operator'&&before.assignedUserId!==actor.id)fail('Intervento non assegnato al tuo account.',403);
-      interventionId=before.id;clientId=before.clientId;const p=getP(before.packageId);
-      if(!p.paid)fail('Pacchetto non pagato.');if(before.status==='cancelled')fail('Intervento già annullato.');
+      interventionId=before.id;clientId=before.clientId;const p=before.packageId?getP(before.packageId):null;
+      if(p&&!p.paid)fail('Pacchetto non pagato.');if(before.status==='cancelled')fail('Intervento già annullato.');
       if(action==='cancel') {
         required(reason,2000);after=await update(tx,t,'interventions',before.id,{status:'cancelled'});
       } else if(action==='reschedule') {
@@ -170,7 +201,7 @@ export async function mutate(store,actor,action,input,key) {
           if(action==='rectify'&&before.status!=='approved')fail('Solo un intervento approvato può essere rettificato.');
           if(action==='rectify')required(reason,2000);
           const duration=integer(input.duration,1,3600),operators=integer(input.operators,1,100);
-          if(duration*(p.rule==='operator'?operators:1)>p.free+before.cost)fail('Ore libere insufficienti per la nuova durata e il numero di operatori.');
+          if(p&&duration*(p.rule==='operator'?operators:1)>p.free+before.cost)fail('Ore libere insufficienti per la nuova durata e il numero di operatori.');
           after=await update(tx,t,'interventions',before.id,{duration,operators,status:action==='complete'?'pending':'approved'});
         }
       }
