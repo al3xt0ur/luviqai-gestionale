@@ -14,10 +14,12 @@ import {invoicePDF} from './invoice-pdf.mjs';
 import {createAssistant} from './ai.mjs';
 import {recordTechnicalLog,platformMonitoring} from './monitoring.mjs';
 import {privacyState,privacySubjects,createPrivacyRequest,updatePrivacyRequest,privacyExport} from './privacy.mjs';
+import {clientIp} from './request-ip.mjs';
 const assistant=createAssistant();
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const production=process.env.NODE_ENV==='production';
+const trustProxy=production;
 const port=Number(process.env.PORT||3000);
 const origin=process.env.APP_ORIGIN||`http://localhost:${port}`;
 if(production&&(!process.env.DATABASE_URL||!origin.startsWith('https://')))throw Error('In produzione sono obbligatori DATABASE_URL e APP_ORIGIN HTTPS.');
@@ -61,18 +63,18 @@ const server=createServer(async(req,res)=>{
       if(!input||Array.isArray(input)||typeof input!=='object')fail('Richiesta non valida.');
     }
     if(req.method==='POST'&&url.pathname==='/api/request-password-reset') {
-      const reset=await requestPasswordReset(store,input,req.socket.remoteAddress);
+      const reset=await requestPasswordReset(store,input,clientIp(req,{trustProxy}));
       if(reset)await queuePasswordReset(store,reset,mailSettings);
       return send(200,{ok:true,message:'Se i dati corrispondono a un account attivo, riceverai un link via email.'});
     }
     if(req.method==='POST'&&url.pathname==='/api/login') {
-      const result=await login(store,input,req.socket.remoteAddress,req.headers['user-agent']);
+      const result=await login(store,input,clientIp(req,{trustProxy}),req.headers['user-agent']);
       if(result.mfaRequired)return send(200,result);
       res.setHeader('Set-Cookie',cookie(result.token));
       return send(200,{user:result.user,csrf:result.csrf});
     }
     if(req.method==='POST'&&url.pathname==='/api/mfa/login') {
-      const result=await verifyMfaLogin(store,input,{ip:req.socket.remoteAddress,userAgent:req.headers['user-agent']});
+      const result=await verifyMfaLogin(store,input,{ip:clientIp(req,{trustProxy}),userAgent:req.headers['user-agent']});
       res.setHeader('Set-Cookie',cookie(result.token));
       return send(200,{user:result.user,csrf:result.csrf});
     }
