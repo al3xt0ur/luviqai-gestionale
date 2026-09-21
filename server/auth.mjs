@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual, createHash } from 'node:crypto';
+import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual, createHash, createHmac, createCipheriv, createDecipheriv } from 'node:crypto';
 import { promisify } from 'node:util';
 import { one, rows } from './storage.mjs';
 import { fail, required, insert } from './domain.mjs';
@@ -24,7 +24,59 @@ async function verify(value,stored) {
 }
 const dummy=await hashPassword(secret());
 const now=()=>new Date().toISOString();
-export const publicUser=u=>({id:u.id,tenantId:u.active_tenant_id||u.tenant_id,homeTenantId:u.tenant_id,name:u.name,email:u.email,role:u.role});
+const B32='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32Encode(buffer){
+  let bits=0,value=0,out='';
+  for(const byte of buffer){value=(value<<8)|byte;bits+=8;while(bits>=5){out+=B32[(value>>>(bits-5))&31];bits-=5;}}
+  if(bits>0)out+=B32[(value<<(5-bits))&31];
+  return out;
+}
+function base32Decode(value){
+  const clean=String(value||'').toUpperCase().replace(/[^A-Z2-7]/g,'');
+  let bits=0,acc=0;const out=[];
+  for(const char of clean){const n=B32.indexOf(char);if(n<0)continue;acc=(acc<<5)|n;bits+=5;if(bits>=8){out.push((acc>>>(bits-8))&255);bits-=8;}}
+  return Buffer.from(out);
+}
+function mfaKey(){
+  const raw=String(process.env.MFA_SECRET_KEY||'');
+  let key;
+  try{key=Buffer.from(raw,'base64url');}catch{}
+  if(!key||key.length!==32)fail('MFA non configurata sul server.',503);
+  return key;
+}
+function encryptMfa(secretValue){
+  const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',mfaKey(),iv);
+  const ciphertext=Buffer.concat([cipher.update(secretValue,'utf8'),cipher.final()]);
+  return [iv,cipher.getAuthTag(),ciphertext].map(v=>v.toString('base64url')).join('.');
+}
+function decryptMfa(payload){
+  const [iv,tag,data]=String(payload||'').split('.').map(v=>Buffer.from(v,'base64url'));
+  if(!iv||!tag||!data||iv.length!==12||tag.length!==16)fail('Configurazione MFA non valida.',500);
+  const decipher=createDecipheriv('aes-256-gcm',mfaKey(),iv);decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(data),decipher.final()]).toString('utf8');
+}
+function hotp(secretValue,counter){
+  const key=base32Decode(secretValue),buf=Buffer.alloc(8);buf.writeBigUInt64BE(BigInt(counter));
+  const h=createHmac('sha1',key).update(buf).digest(),offset=h[h.length-1]&15;
+  const n=(h.readUInt32BE(offset)&0x7fffffff)%1000000;
+  return String(n).padStart(6,'0');
+}
+function verifyTotp(secretValue,code,time=Date.now()){
+  const clean=String(code||'').replace(/\s/g,'');
+  if(!/^\d{6}$/.test(clean))return false;
+  const counter=Math.floor(time/30000);
+  for(let drift=-1;drift<=1;drift++)if(hotp(secretValue,counter+drift)===clean)return true;
+  return false;
+}
+function recoveryCode(){return randomBytes(5).toString('hex').toUpperCase().match(/.{1,5}/g).join('-');}
+function safeEqualText(a,b){const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&timingSafeEqual(x,y);}
+async function issueSession(tx,user,time=Date.now()){
+  const token=secret(),csrf=secret();
+  await tx.query('DELETE FROM sessions WHERE expires<$1',[time]);
+  await tx.query('INSERT INTO sessions(token_hash,user_id,csrf,expires) VALUES($1,$2,$3,$4)',[digest(token),user.id,csrf,time+8*3600000]);
+  return {token,csrf,user:publicUser(user)};
+}
+export const publicUser=u=>({id:u.id,tenantId:u.active_tenant_id||u.tenant_id,homeTenantId:u.tenant_id,name:u.name,email:u.email,role:u.role,mfaEnabled:!!u.mfa_enabled});
 
 export async function provision(store,{slug,name,email,password,userName='Responsabile'}) {
   if(!/^[a-z0-9-]{3,50}$/.test(slug))fail('Codice azienda non valido.');
@@ -58,13 +110,88 @@ export async function login(store,input,ip) {
       return {error:'Azienda, email o password non corretti.',status:401};
     }
     await tx.query('DELETE FROM login_attempts WHERE key=$1',[key]);
-    const token=secret(),csrf=secret();
-    await tx.query('DELETE FROM sessions WHERE expires<$1',[time]);
-    await tx.query('INSERT INTO sessions(token_hash,user_id,csrf,expires) VALUES($1,$2,$3,$4)',[digest(token),user.id,csrf,time+8*3600000]);
-    return {token,csrf,user:publicUser(user)};
+    if(user.mfa_enabled){
+      const challenge=secret();
+      await tx.query('DELETE FROM mfa_challenges WHERE user_id=$1 OR expires<$2',[user.id,time]);
+      await tx.query('INSERT INTO mfa_challenges(token_hash,user_id,expires,failures) VALUES($1,$2,$3,0)',[digest(challenge),user.id,time+5*60000]);
+      return {mfaRequired:true,challenge,user:{name:user.name,email:user.email,role:user.role}};
+    }
+    return issueSession(tx,user,time);
   });
   if(result.error)fail(result.error,result.status);
   return result;
+}
+
+export async function verifyMfaLogin(store,input){
+  const challenge=String(input?.challenge||''),code=String(input?.code||'').trim(),time=Date.now();
+  if(!/^[A-Za-z0-9_-]{43}$/.test(challenge))fail('Verifica MFA non valida o scaduta.',401);
+  return store.transaction(async tx=>{
+    const row=await one(tx,`SELECT c.*,u.* FROM mfa_challenges c JOIN users u ON u.id=c.user_id JOIN tenants t ON t.id=u.tenant_id
+      WHERE c.token_hash=$1 AND c.expires>$2 AND u.active=true AND t.active=true FOR UPDATE OF c`,[digest(challenge),time]);
+    if(!row||!row.mfa_enabled||!row.mfa_secret_enc)fail('Verifica MFA non valida o scaduta.',401);
+    if(Number(row.failures)>=5){await tx.query('DELETE FROM mfa_challenges WHERE token_hash=$1',[digest(challenge)]);fail('Troppi tentativi MFA. Accedi di nuovo.',429);}
+    const secretValue=decryptMfa(row.mfa_secret_enc);
+    let valid=verifyTotp(secretValue,code),recovery=false;
+    const recoveryHashes=Array.isArray(row.mfa_recovery)?row.mfa_recovery:[];
+    if(!valid&&code){
+      const candidate=digest('mfa-recovery:'+code.toUpperCase());
+      const index=recoveryHashes.findIndex(v=>safeEqualText(v,candidate));
+      if(index>=0){valid=true;recovery=true;recoveryHashes.splice(index,1);}
+    }
+    if(!valid){await tx.query('UPDATE mfa_challenges SET failures=failures+1 WHERE token_hash=$1',[digest(challenge)]);fail('Codice di verifica non valido.',401);}
+    if(recovery)await tx.query('UPDATE users SET mfa_recovery=$2 WHERE id=$1',[row.id,JSON.stringify(recoveryHashes)]);
+    await tx.query('DELETE FROM mfa_challenges WHERE user_id=$1',[row.id]);
+    return issueSession(tx,row,time);
+  });
+}
+
+export async function mfaStatus(store,actor){
+  const user=await one(store,'SELECT mfa_enabled FROM users WHERE id=$1',[actor.id]);
+  return {enabled:!!user?.mfa_enabled,available:!!process.env.MFA_SECRET_KEY,eligible:['manager','platform_admin'].includes(actor.role)};
+}
+
+export async function beginMfaSetup(store,actor){
+  if(!['manager','platform_admin'].includes(actor.role))fail('MFA disponibile per amministratori e responsabili.',403);
+  mfaKey();
+  const tenantId=actor.homeTenantId||actor.tenantId;
+  return store.transaction(async tx=>{
+    const user=await one(tx,'SELECT * FROM users WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[actor.id,tenantId]);
+    if(!user)fail('Account non trovato.',404);
+    const secretValue=base32Encode(randomBytes(20));
+    await tx.query('UPDATE users SET mfa_secret_enc=$2,mfa_enabled=false,mfa_recovery=\'[]\'::jsonb WHERE id=$1',[actor.id,encryptMfa(secretValue)]);
+    const label=encodeURIComponent('luviqAI:'+user.email),issuer=encodeURIComponent('luviqAI');
+    return {secret:secretValue,uri:`otpauth://totp/${label}?secret=${secretValue}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`};
+  });
+}
+
+export async function enableMfa(store,actor,input){
+  if(!['manager','platform_admin'].includes(actor.role))fail('MFA disponibile per amministratori e responsabili.',403);
+  const tenantId=actor.homeTenantId||actor.tenantId;
+  return store.transaction(async tx=>{
+    const user=await one(tx,'SELECT * FROM users WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[actor.id,tenantId]);
+    if(!user?.mfa_secret_enc)fail('Avvia prima la configurazione MFA.');
+    if(!verifyTotp(decryptMfa(user.mfa_secret_enc),input?.code))fail('Codice di verifica non valido.');
+    const codes=Array.from({length:8},()=>recoveryCode());
+    const hashes=codes.map(c=>digest('mfa-recovery:'+c));
+    await tx.query('UPDATE users SET mfa_enabled=true,mfa_recovery=$2 WHERE id=$1',[actor.id,JSON.stringify(hashes)]);
+    await tx.query('DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2',[actor.id,actor.tokenHash]);
+    return {ok:true,recoveryCodes:codes};
+  });
+}
+
+export async function disableMfa(store,actor,input){
+  if(!['manager','platform_admin'].includes(actor.role))fail('MFA disponibile per amministratori e responsabili.',403);
+  const tenantId=actor.homeTenantId||actor.tenantId;
+  return store.transaction(async tx=>{
+    const user=await one(tx,'SELECT * FROM users WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[actor.id,tenantId]);
+    if(!user?.mfa_enabled||!user.mfa_secret_enc)fail('MFA non attiva.');
+    if(!await verify(String(input?.password||''),user.password_hash))fail('Password attuale non corretta.');
+    if(!verifyTotp(decryptMfa(user.mfa_secret_enc),input?.code))fail('Codice di verifica non valido.');
+    await tx.query('UPDATE users SET mfa_enabled=false,mfa_secret_enc=NULL,mfa_recovery=\'[]\'::jsonb WHERE id=$1',[actor.id]);
+    await tx.query('DELETE FROM mfa_challenges WHERE user_id=$1',[actor.id]);
+    await tx.query('DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2',[actor.id,actor.tokenHash]);
+    return {ok:true};
+  });
 }
 
 export async function authenticate(store,cookie='') {
