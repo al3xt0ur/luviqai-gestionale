@@ -105,7 +105,7 @@ export async function mutate(store,actor,action,input,key) {
         if(before&&!['draft','planned'].includes(before.status))fail('Solo le commesse in bozza o pianificate sono modificabili.');
         clientId=integer(input.clientId,1,1e9);const client=getC(clientId);active(client);
         let quote=null,pkg=null;
-        if(input.quoteId){quote=state.quotes.find(q=>q.id===Number(input.quoteId))||fail('Preventivo non trovato.',404);if(quote.clientId!==clientId||quote.status!=='accepted')fail('La commessa può essere collegata solo a un preventivo accettato dello stesso cliente.');}
+        if(input.quoteId){quote=state.quotes.find(q=>q.id===Number(input.quoteId))||fail('Preventivo non trovato.',404);if(quote.clientId!==clientId||quote.status!=='accepted')fail('La commessa può essere collegata solo a un preventivo accettato dello stesso cliente.');if(state.jobs.some(j=>j.quoteId===quote.id&&j.id!==before?.id&&j.status!=='cancelled'))fail('Esiste già una commessa attiva collegata a questo preventivo.');}
         if(input.packageId){pkg=getP(input.packageId);if(pkg.clientId!==clientId)fail('Il pacchetto deve appartenere allo stesso cliente.');}
         const title=required(input.title,200),description=String(input.description||'').trim();if(description.length>3000)fail('La descrizione non può superare 3000 caratteri.');
         let dueDate=null;if(input.dueDate){if(typeof input.dueDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(input.dueDate)||!Number.isFinite(Date.parse(input.dueDate)))fail('Data scadenza commessa non valida.');dueDate=input.dueDate;}
