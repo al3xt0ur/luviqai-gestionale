@@ -1,5 +1,11 @@
 # Riprendere lo sviluppo
 
+## Aggiornamento 21 settembre 2026
+
+Produzione online su Render (`app.luviqai.it`), PostgreSQL Supabase e invio email Resend. Base analizzata: `846b55b`, schema 13, inclusi monitoraggio e privacy. Le sezioni datate sotto descrivono consegne precedenti.
+
+Prima fase staging sul ramo `codex/isolated-ci`: workflow Linux/Windows e isolamento automatico dei test, documentati in `docs/STAGING.md`. Non configurare il flag di test su Render. Non unire su main senza considerare il deploy automatico. Il sottodominio OVH di test e il database staging non sono ancora creati. Per questa fase nessuna migrazione o connessione al database operativo.
+
 ## Riferimenti correnti — 17 settembre 2026
 
 - Repository condiviso: https://github.com/al3xt0ur/luviqai-gestionale, ramo principale `main`.

@@ -2,10 +2,15 @@ import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
 import { readFile } from 'node:fs/promises';
 import {mkdirSync,openSync,writeFileSync,readFileSync,closeSync,unlinkSync} from 'node:fs';
-import {dirname} from 'node:path';
+import {dirname,resolve,relative,isAbsolute} from 'node:path';
+import {tmpdir} from 'node:os';
 import {importPackageCatalog} from './catalog.mjs';
 
 export async function connectStore({ url, path } = {}) {
+  if(process.env.LUVIQ_TEST_MODE==='1'){
+    if(url)throw Error('Test isolati: connessioni PostgreSQL esterne vietate.');
+    if(path){const rel=relative(resolve(tmpdir()),resolve(path));if(!rel||rel.startsWith('..')||isAbsolute(rel))throw Error('Test isolati: usare un database nella cartella temporanea.');}
+  }
   if (url) {
     const pool = new pg.Pool({ connectionString: url, max: 8 });
     return {
