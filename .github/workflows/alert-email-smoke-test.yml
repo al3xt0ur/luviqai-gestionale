@@ -1,0 +1,30 @@
+name: Test alert email
+on:
+  push:
+    branches: ['feature/alert-email-smoke-test']
+    paths:
+      - '.github/workflows/alert-email-smoke-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  send-test:
+    name: Invia email di prova
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Invia alert di prova
+        env:
+          ALERT_RESEND_API_KEY: ${{ secrets.ALERT_RESEND_API_KEY }}
+          ALERT_MAIL_FROM: ${{ secrets.ALERT_MAIL_FROM }}
+          ALERT_MAIL_TO: ${{ secrets.ALERT_MAIL_TO }}
+          HEALTHCHECK_URL: https://app.luviqai.it/api/health
+          HEALTHCHECK_DETAIL: Test controllato del canale email di monitoraggio luviqAI.
+        run: node scripts/send-health-alert.mjs
