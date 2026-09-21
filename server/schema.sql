@@ -505,3 +505,57 @@ DO $$ BEGIN
   INSERT INTO schema_version(version) VALUES(18);
  END IF;
 END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=19) THEN
+  CREATE TABLE IF NOT EXISTS intervention_execution (
+    tenant_id text NOT NULL REFERENCES tenants(id),
+    intervention_id integer NOT NULL,
+    timer_started_at text,
+    elapsed_seconds integer NOT NULL DEFAULT 0 CHECK(elapsed_seconds>=0),
+    checklist jsonb NOT NULL DEFAULT '[]'::jsonb,
+    materials jsonb NOT NULL DEFAULT '[]'::jsonb,
+    report_notes text NOT NULL DEFAULT '',
+    signature_name text NOT NULL DEFAULT '',
+    signature_data text NOT NULL DEFAULT '',
+    updated text NOT NULL,
+    PRIMARY KEY(tenant_id,intervention_id),
+    FOREIGN KEY(tenant_id,intervention_id) REFERENCES interventions(tenant_id,id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS intervention_attachments (
+    tenant_id text NOT NULL REFERENCES tenants(id),
+    id text NOT NULL,
+    intervention_id integer NOT NULL,
+    storage_key text NOT NULL,
+    filename text NOT NULL,
+    content_type text NOT NULL,
+    size_bytes integer NOT NULL CHECK(size_bytes>=0),
+    created text NOT NULL,
+    created_by text NOT NULL,
+    PRIMARY KEY(tenant_id,id),
+    FOREIGN KEY(tenant_id,intervention_id) REFERENCES interventions(tenant_id,id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS intervention_attachments_intervention_idx
+    ON intervention_attachments(tenant_id,intervention_id,created);
+
+  GRANT SELECT,INSERT,UPDATE,DELETE ON intervention_execution,intervention_attachments TO luviq_tenant;
+  ALTER TABLE intervention_execution ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE intervention_attachments ENABLE ROW LEVEL SECURITY;
+
+  IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='intervention_execution' AND policyname='tenant_isolation') THEN
+    CREATE POLICY tenant_isolation ON intervention_execution TO luviq_tenant
+      USING(tenant_id=current_setting('app.tenant_id',true))
+      WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+  END IF;
+  IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='intervention_attachments' AND policyname='tenant_isolation') THEN
+    CREATE POLICY tenant_isolation ON intervention_attachments TO luviq_tenant
+      USING(tenant_id=current_setting('app.tenant_id',true))
+      WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+  END IF;
+
+  INSERT INTO schema_version(version) VALUES(19);
+ END IF;
+END $$
