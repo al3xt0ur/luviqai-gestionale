@@ -12,7 +12,7 @@ import {requireAdmin,platformState,switchCompany,createCompany,suspendCompany,ad
 import {quotePDF} from './quote-pdf.mjs';
 import {invoicePDF} from './invoice-pdf.mjs';
 import {createAssistant} from './ai.mjs';
-import {recordTechnicalLog,platformMonitoring} from './monitoring.mjs';
+import {recordTechnicalLog,platformMonitoring,publicHealth} from './monitoring.mjs';
 import {privacyState,privacySubjects,createPrivacyRequest,updatePrivacyRequest,privacyExport} from './privacy.mjs';
 import {clientIp} from './request-ip.mjs';
 const assistant=createAssistant();
@@ -51,7 +51,7 @@ const server=createServer(async(req,res)=>{
   try {
     if(!allowedHosts.has(req.headers.host))return send(403,{error:'Host non consentito.'});
     const url=new URL(req.url,origin);requestPath=url.pathname;
-    if(req.method==='GET'&&url.pathname==='/api/health')return send(200,{ok:true});
+    if(req.method==='GET'&&url.pathname==='/api/health'){const health=await publicHealth(store);return send(health.ok?200:503,health);}
     let input;
     if(req.method==='POST') {
       if(req.headers.origin&&!allowedOrigins.has(req.headers.origin))fail('Origine non consentita.',403);
