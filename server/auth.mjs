@@ -70,10 +70,11 @@ function verifyTotp(secretValue,code,time=Date.now()){
 }
 function recoveryCode(){return randomBytes(5).toString('hex').toUpperCase().match(/.{1,5}/g).join('-');}
 function safeEqualText(a,b){const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&timingSafeEqual(x,y);}
-async function issueSession(tx,user,time=Date.now()){
+async function issueSession(tx,user,time=Date.now(),meta={}){
   const token=secret(),csrf=secret();
+  const ip=String(meta.ip||'').slice(0,120),userAgent=String(meta.userAgent||'').slice(0,500);
   await tx.query('DELETE FROM sessions WHERE expires<$1',[time]);
-  await tx.query('INSERT INTO sessions(token_hash,user_id,csrf,expires) VALUES($1,$2,$3,$4)',[digest(token),user.id,csrf,time+8*3600000]);
+  await tx.query('INSERT INTO sessions(token_hash,user_id,csrf,expires,created_at,last_seen_at,ip_address,user_agent) VALUES($1,$2,$3,$4,$5,$5,$6,$7)',[digest(token),user.id,csrf,time+8*3600000,time,ip,userAgent]);
   return {token,csrf,user:publicUser(user)};
 }
 export const publicUser=u=>({id:u.id,tenantId:u.active_tenant_id||u.tenant_id,homeTenantId:u.tenant_id,name:u.name,email:u.email,role:u.role,mfaEnabled:!!u.mfa_enabled});
@@ -91,7 +92,7 @@ export async function provision(store,{slug,name,email,password,userName='Respon
   });
 }
 
-export async function login(store,input,ip) {
+export async function login(store,input,ip,userAgent='') {
   const slug=String(input.slug||'').trim().toLowerCase().slice(0,100),email=String(input.email||'').trim().toLowerCase().slice(0,300);
   const key=digest(`${slug}\0${email}`),ipKey=digest(`ip:${ip}`),time=Date.now();
   const result=await store.transaction(async tx=>{
@@ -116,13 +117,13 @@ export async function login(store,input,ip) {
       await tx.query('INSERT INTO mfa_challenges(token_hash,user_id,expires,failures) VALUES($1,$2,$3,0)',[digest(challenge),user.id,time+5*60000]);
       return {mfaRequired:true,challenge,user:{name:user.name,email:user.email,role:user.role}};
     }
-    return issueSession(tx,user,time);
+    return issueSession(tx,user,time,{ip,userAgent});
   });
   if(result.error)fail(result.error,result.status);
   return result;
 }
 
-export async function verifyMfaLogin(store,input){
+export async function verifyMfaLogin(store,input,meta={}){
   const challenge=String(input?.challenge||''),code=String(input?.code||'').trim(),time=Date.now();
   if(!/^[A-Za-z0-9_-]{43}$/.test(challenge))fail('Verifica MFA non valida o scaduta.',401);
   return store.transaction(async tx=>{
@@ -141,7 +142,7 @@ export async function verifyMfaLogin(store,input){
     if(!valid){await tx.query('UPDATE mfa_challenges SET failures=failures+1 WHERE token_hash=$1',[digest(challenge)]);fail('Codice di verifica non valido.',401);}
     if(recovery)await tx.query('UPDATE users SET mfa_recovery=$2 WHERE id=$1',[row.id,JSON.stringify(recoveryHashes)]);
     await tx.query('DELETE FROM mfa_challenges WHERE user_id=$1',[row.id]);
-    return issueSession(tx,row,time);
+    return issueSession(tx,row,time,meta);
   });
 }
 
@@ -197,8 +198,43 @@ export async function disableMfa(store,actor,input){
 export async function authenticate(store,cookie='') {
   const token=cookie.split(';').map(v=>v.trim()).find(v=>v.startsWith('luviq_session='))?.slice(14);
   if(!token)return null;
-  const user=await one(store,'SELECT u.*,s.csrf,s.token_hash,s.active_tenant_id FROM sessions s JOIN users u ON u.id=s.user_id JOIN tenants t ON t.id=u.tenant_id WHERE s.token_hash=$1 AND s.expires>$2 AND u.active=true AND t.active=true',[digest(token),Date.now()]);
-  return user?{...publicUser(user),csrf:user.csrf,tokenHash:user.token_hash}:null;
+  const time=Date.now();
+  const user=await one(store,'SELECT u.*,s.csrf,s.token_hash,s.active_tenant_id,s.created_at,s.last_seen_at FROM sessions s JOIN users u ON u.id=s.user_id JOIN tenants t ON t.id=u.tenant_id WHERE s.token_hash=$1 AND s.expires>$2 AND u.active=true AND t.active=true',[digest(token),time]);
+  if(!user)return null;
+  if(Number(user.last_seen_at||0)<time-60000||Number(user.created_at||0)===0)await store.query('UPDATE sessions SET last_seen_at=$2,created_at=CASE WHEN created_at=0 THEN $2 ELSE created_at END WHERE token_hash=$1',[user.token_hash,time]);
+  return {...publicUser(user),csrf:user.csrf,tokenHash:user.token_hash};
+}
+
+const sessionViewId=tokenHash=>digest('session-view:'+tokenHash);
+export async function activeSessions(store,actor){
+  const time=Date.now();
+  await store.query('DELETE FROM sessions WHERE expires<$1',[time]);
+  const list=await rows(store,'SELECT token_hash,expires,created_at,last_seen_at,ip_address,user_agent FROM sessions WHERE user_id=$1 AND expires>$2 ORDER BY created_at DESC,expires DESC',[actor.id,time]);
+  return list.map(s=>({
+    id:sessionViewId(s.token_hash),
+    current:s.token_hash===actor.tokenHash,
+    createdAt:Number(s.created_at)||null,
+    lastSeenAt:Number(s.last_seen_at)||null,
+    expiresAt:Number(s.expires),
+    ipAddress:s.ip_address||'',
+    userAgent:s.user_agent||''
+  }));
+}
+
+export async function revokeSession(store,actor,input){
+  const id=String(input?.id||'');
+  if(!/^[a-f0-9]{64}$/.test(id))fail('Sessione non valida.');
+  const list=await rows(store,'SELECT token_hash FROM sessions WHERE user_id=$1 AND expires>$2',[actor.id,Date.now()]);
+  const target=list.find(s=>sessionViewId(s.token_hash)===id);
+  if(!target)fail('Sessione non trovata.',404);
+  if(target.token_hash===actor.tokenHash)fail('Per chiudere la sessione corrente usa Esci.',400);
+  await store.query('DELETE FROM sessions WHERE token_hash=$1 AND user_id=$2',[target.token_hash,actor.id]);
+  return {ok:true};
+}
+
+export async function revokeOtherSessions(store,actor){
+  const result=await store.query('DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2',[actor.id,actor.tokenHash]);
+  return {ok:true,revoked:result.rowCount||0};
 }
 
 export const team=async(store,actor)=>rows(store,'SELECT id,name,email,role,active FROM users WHERE tenant_id=$1 ORDER BY name',[actor.tenantId]);
