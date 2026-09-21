@@ -436,3 +436,23 @@ DO $$ BEGIN
   INSERT INTO schema_version(version) VALUES(15);
  END IF;
 END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=16) THEN
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled boolean NOT NULL DEFAULT false;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret_enc text;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_recovery jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+  CREATE TABLE IF NOT EXISTS mfa_challenges (
+    token_hash text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires bigint NOT NULL,
+    failures integer NOT NULL DEFAULT 0 CHECK(failures>=0)
+  );
+  CREATE INDEX IF NOT EXISTS mfa_challenges_user_idx ON mfa_challenges(user_id);
+
+  INSERT INTO schema_version(version) VALUES(16);
+ END IF;
+END $$
