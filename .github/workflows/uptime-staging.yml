@@ -27,4 +27,21 @@ jobs:
         with:
           node-version: '24'
       - name: Verifica staging
-        run: node scripts/check-health.mjs https://staging.luviqai.it/api/health
+        id: health
+        continue-on-error: true
+        env:
+          HEALTHCHECK_URL: https://staging.luviqai.it/api/health
+        run: node scripts/check-health.mjs "$HEALTHCHECK_URL"
+      - name: Invia alert email
+        if: steps.health.outcome == 'failure'
+        env:
+          ALERT_RESEND_API_KEY: ${{ secrets.ALERT_RESEND_API_KEY }}
+          ALERT_MAIL_FROM: ${{ secrets.ALERT_MAIL_FROM }}
+          ALERT_MAIL_TO: ${{ secrets.ALERT_MAIL_TO }}
+          HEALTHCHECK_URL: https://staging.luviqai.it/api/health
+          HEALTHCHECK_DETAIL: Staging irraggiungibile oppure health check degradato.
+        run: node scripts/send-health-alert.mjs
+      - name: Segna il controllo come fallito
+        if: steps.health.outcome == 'failure'
+        shell: bash
+        run: exit 1
