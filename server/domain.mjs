@@ -24,7 +24,7 @@ const fields = {
   packages: ['clientId','tier','original','initial','rule','paid','renewedFrom','created','templateId','templateRevision','description'],
   package_templates: ['name','description','minutes','rule','active','revision'],
   jobs: ['clientId','quoteId','packageId','title','description','status','dueDate','revision','created','updated'],
-  interventions: ['packageId','jobId','date','service','team','duration','operators','notes','status','assignedUserId'],
+  interventions: ['packageId','jobId','date','service','team','duration','operators','notes','status','assignedUserId','recurrenceSeriesId','recurrenceIndex'],
   audit: ['date','author','authorId','action','clientId','interventionId','beforeValue','afterValue','reason'],
 };
 const snake=s=>s.replace(/[A-Z]/g,c=>'_'+c.toLowerCase());
@@ -47,7 +47,8 @@ async function update(tx,tenantId,table,id,value) {
 export async function snapshotTx(tx,tenantId) {
   const clients=(await rows(tx,'SELECT * FROM clients WHERE tenant_id=$1 ORDER BY name',[tenantId])).map(camel);
   const jobs=(await rows(tx,'SELECT * FROM jobs WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel);
-  const interventions=(await rows(tx,'SELECT i.*,coalesce(p.client_id,j.client_id) AS client_id,p.rule FROM interventions i LEFT JOIN packages p ON p.tenant_id=i.tenant_id AND p.id=i.package_id LEFT JOIN jobs j ON j.tenant_id=i.tenant_id AND j.id=i.job_id WHERE i.tenant_id=$1 ORDER BY i.date DESC,i.id DESC',[tenantId])).map(camel).map(i=>({...i,cost:i.duration*(i.packageId?(i.rule==='operator'?i.operators:1):i.operators)}));
+  const assignmentRows=(await rows(tx,'SELECT intervention_id,user_id FROM intervention_assignments WHERE tenant_id=$1 ORDER BY intervention_id,user_id',[tenantId])).map(camel);
+  const interventions=(await rows(tx,'SELECT i.*,coalesce(p.client_id,j.client_id) AS client_id,p.rule FROM interventions i LEFT JOIN packages p ON p.tenant_id=i.tenant_id AND p.id=i.package_id LEFT JOIN jobs j ON j.tenant_id=i.tenant_id AND j.id=i.job_id WHERE i.tenant_id=$1 ORDER BY i.date DESC,i.id DESC',[tenantId])).map(camel).map(i=>({...i,cost:i.duration*(i.packageId?(i.rule==='operator'?i.operators:1):i.operators),assignedUserIds:assignmentRows.filter(a=>a.interventionId===i.id).map(a=>a.userId)}));
   const packages=(await rows(tx,'SELECT * FROM packages WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel).map(p=>{
     const list=interventions.filter(i=>i.packageId===p.id);
     const consumed=list.filter(i=>i.status==='approved').reduce((s,i)=>s+i.cost,0);
@@ -68,7 +69,7 @@ export async function snapshot(store,actor) {
   return tenantTransaction(store,actor.tenantId,async(tx,tenant)=>{
     const state=await snapshotTx(tx,actor.tenantId);
     if(actor.role==='operator') {
-      state.interventions=state.interventions.filter(i=>i.assignedUserId===actor.id);
+      state.interventions=state.interventions.filter(i=>i.assignedUserIds?.includes(actor.id)||i.assignedUserId===actor.id);
       state.packages=state.packages.filter(p=>state.interventions.some(i=>i.packageId===p.id));
       state.jobs=state.jobs.filter(j=>state.interventions.some(i=>i.jobId===j.id));
       state.clients=state.clients.filter(c=>state.packages.some(p=>p.clientId===c.id)||state.jobs.some(j=>j.clientId===c.id));
@@ -176,10 +177,39 @@ export async function mutate(store,actor,action,input,key) {
       const date=new Date(required(input.date));if(!Number.isFinite(date.getTime()))fail('Data non valida.');
       if(!['planned','pending'].includes(input.status))fail('Stato non valido.');
       if(input.status==='pending'&&date.getTime()>Date.now())fail('Un intervento futuro può essere solo pianificato.');
-      if(p&&duration*(p.rule==='operator'?operators:1)>p.free)fail('Ore libere insufficienti per questo intervento.');
-      if(input.assignedUserId&&!actor.assignableUserIds?.includes(input.assignedUserId))fail('Operatore non disponibile per questa azienda.');
-      after=await insert(tx,t,'interventions',{packageId:p?.id||null,jobId:job?.id||null,date:date.toISOString(),service:required(input.service),team:required(input.team),duration,operators,notes:String(input.notes||'').slice(0,3000),status:input.status,assignedUserId:input.assignedUserId||null});
-      interventionId=after.id;
+      const assignedUserIds=Array.from(new Set((Array.isArray(input.assignedUserIds)?input.assignedUserIds:(input.assignedUserId?[input.assignedUserId]:[])).filter(v=>typeof v==='string'&&v)));
+      if(assignedUserIds.length>operators)fail('Il numero di account assegnati non può superare il numero di operatori previsto.');
+      if(assignedUserIds.some(id=>!actor.assignableUserIds?.includes(id)))fail('Uno degli operatori selezionati non è disponibile per questa azienda.');
+      let recurrenceCount=1,recurrenceFrequency=null;
+      if(input.recurrence?.enabled===true){
+        recurrenceFrequency=String(input.recurrence.frequency||'');
+        if(!['weekly','monthly'].includes(recurrenceFrequency))fail('Frequenza ricorrenza non valida.');
+        recurrenceCount=integer(input.recurrence.count,2,52);
+        if(input.status!=='planned')fail('Solo gli interventi pianificati possono essere ricorrenti.');
+      }
+      const occurrences=Array.from({length:recurrenceCount},(_,index)=>{
+        const next=new Date(date);
+        if(recurrenceFrequency==='weekly')next.setUTCDate(next.getUTCDate()+7*index);
+        if(recurrenceFrequency==='monthly')next.setUTCMonth(next.getUTCMonth()+index);
+        return next;
+      });
+      const unitCost=duration*(p?(p.rule==='operator'?operators:1):operators);
+      if(p&&unitCost*occurrences.length>p.free)fail('Ore libere insufficienti per tutti gli interventi della serie.');
+      const overlaps=(aStart,aDuration,b)=>aStart.getTime()<new Date(b.date).getTime()+b.duration*60000&&new Date(b.date).getTime()<aStart.getTime()+aDuration*60000;
+      for(const occurrence of occurrences){
+        if(input.status==='planned'){
+          const conflict=state.interventions.find(i=>i.status==='planned'&&assignedUserIds.some(id=>i.assignedUserIds?.includes(id)||i.assignedUserId===id)&&overlaps(occurrence,duration,i));
+          if(conflict)fail(`Operatore già impegnato nell'intervallo selezionato (intervento #${conflict.id}).`,409);
+        }
+      }
+      const recurrenceSeriesId=occurrences.length>1?crypto.randomUUID():null,created=[];
+      for(let index=0;index<occurrences.length;index++){
+        const value=await insert(tx,t,'interventions',{packageId:p?.id||null,jobId:job?.id||null,date:occurrences[index].toISOString(),service:required(input.service),team:required(input.team),duration,operators,notes:String(input.notes||'').slice(0,3000),status:input.status,assignedUserId:assignedUserIds[0]||null,recurrenceSeriesId,recurrenceIndex:index});
+        for(const userId of assignedUserIds)await tx.query('INSERT INTO intervention_assignments(tenant_id,intervention_id,user_id,created) VALUES($1,$2,$3,$4)',[t,value.id,userId,new Date().toISOString()]);
+        created.push({...value,assignedUserIds});
+      }
+      after={...created[0],recurrenceCount:created.length};
+      interventionId=created[0].id;
     } else if(['complete','approve','rectify','cancel','reschedule'].includes(action)) {
       before=state.interventions.find(i=>i.id===Number(input.id))||fail('Intervento non trovato.',404);
       if(actor.role==='operator'&&before.assignedUserId!==actor.id)fail('Intervento non assegnato al tuo account.',403);
@@ -190,6 +220,9 @@ export async function mutate(store,actor,action,input,key) {
       } else if(action==='reschedule') {
         if(before.status!=='planned')fail('Puoi ripianificare solo un intervento pianificato.');required(reason,2000);
         const date=new Date(required(input.date));if(!Number.isFinite(date.getTime()))fail('Data non valida.');
+        const assignedUserIds=before.assignedUserIds?.length?before.assignedUserIds:(before.assignedUserId?[before.assignedUserId]:[]);
+        const conflict=state.interventions.find(i=>i.id!==before.id&&i.status==='planned'&&assignedUserIds.some(id=>i.assignedUserIds?.includes(id)||i.assignedUserId===id)&&date.getTime()<new Date(i.date).getTime()+i.duration*60000&&new Date(i.date).getTime()<date.getTime()+before.duration*60000);
+        if(conflict)fail(`Operatore già impegnato nell'intervallo selezionato (intervento #${conflict.id}).`,409);
         after=await update(tx,t,'interventions',before.id,{date:date.toISOString()});
       } else {
         if(new Date(before.date).getTime()>Date.now())fail('Non è possibile completare o approvare un intervento futuro.');

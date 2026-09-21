@@ -468,3 +468,40 @@ DO $$ BEGIN
   INSERT INTO schema_version(version) VALUES(17);
  END IF;
 END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=18) THEN
+  ALTER TABLE interventions ADD COLUMN IF NOT EXISTS recurrence_series_id text;
+  ALTER TABLE interventions ADD COLUMN IF NOT EXISTS recurrence_index integer NOT NULL DEFAULT 0 CHECK(recurrence_index>=0);
+
+  CREATE TABLE IF NOT EXISTS intervention_assignments (
+    tenant_id text NOT NULL REFERENCES tenants(id),
+    intervention_id integer NOT NULL,
+    user_id text NOT NULL,
+    created text NOT NULL,
+    PRIMARY KEY(tenant_id,intervention_id,user_id),
+    FOREIGN KEY(tenant_id,intervention_id) REFERENCES interventions(tenant_id,id) ON DELETE CASCADE,
+    FOREIGN KEY(tenant_id,user_id) REFERENCES users(tenant_id,id)
+  );
+  CREATE INDEX IF NOT EXISTS intervention_assignments_user_idx
+    ON intervention_assignments(tenant_id,user_id,intervention_id);
+
+  INSERT INTO intervention_assignments(tenant_id,intervention_id,user_id,created)
+  SELECT tenant_id,id,assigned_user_id,coalesce(date,now()::text)
+  FROM interventions
+  WHERE assigned_user_id IS NOT NULL
+  ON CONFLICT DO NOTHING;
+
+  GRANT SELECT,INSERT,DELETE ON intervention_assignments TO luviq_tenant;
+  ALTER TABLE intervention_assignments ENABLE ROW LEVEL SECURITY;
+  IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='intervention_assignments' AND policyname='tenant_isolation') THEN
+    CREATE POLICY tenant_isolation ON intervention_assignments TO luviq_tenant
+      USING(tenant_id=current_setting('app.tenant_id',true))
+      WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+  END IF;
+
+  INSERT INTO schema_version(version) VALUES(18);
+ END IF;
+END $$
