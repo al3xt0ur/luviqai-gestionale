@@ -14,6 +14,7 @@ async function createEncryptedBackup(output){
   const plain=join(dir,'backup.json');
   const store=await connectStore({url:process.env.DATABASE_URL});
   try{
+    await migrate(store);
     await backupStore(store,plain);
     const content=await readFile(plain);
     const envelope=encryptBackup(content);
