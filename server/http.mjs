@@ -5,7 +5,7 @@ import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { connectStore, migrate } from './storage.mjs';
 import { snapshot, mutate, fail } from './domain.mjs';
-import { authenticate, login, team, manageUser, changePassword, resetPassword, requestPasswordReset } from './auth.mjs';
+import { authenticate, login, verifyMfaLogin, mfaStatus, beginMfaSetup, enableMfa, disableMfa, team, manageUser, changePassword, resetPassword, requestPasswordReset } from './auth.mjs';
 import { bootstrapLocal } from './bootstrap.mjs';
 import { backupStore } from './backup.mjs';
 import {requireAdmin,platformState,switchCompany,createCompany,suspendCompany,adminProfile,resetCompanyUser} from './platform.mjs';
@@ -67,6 +67,12 @@ const server=createServer(async(req,res)=>{
     }
     if(req.method==='POST'&&url.pathname==='/api/login') {
       const result=await login(store,input,req.socket.remoteAddress);
+      if(result.mfaRequired)return send(200,result);
+      res.setHeader('Set-Cookie',cookie(result.token));
+      return send(200,{user:result.user,csrf:result.csrf});
+    }
+    if(req.method==='POST'&&url.pathname==='/api/mfa/login') {
+      const result=await verifyMfaLogin(store,input);
       res.setHeader('Set-Cookie',cookie(result.token));
       return send(200,{user:result.user,csrf:result.csrf});
     }
@@ -93,6 +99,10 @@ const server=createServer(async(req,res)=>{
       if(req.method==='POST'&&url.pathname==='/api/password') {
         await changePassword(store,actor,input);res.setHeader('Set-Cookie',cookie('',true));return send(200,{ok:true});
       }
+      if(req.method==='GET'&&url.pathname==='/api/mfa/status')return send(200,await mfaStatus(store,actor));
+      if(req.method==='POST'&&url.pathname==='/api/mfa/setup')return send(200,await beginMfaSetup(store,actor));
+      if(req.method==='POST'&&url.pathname==='/api/mfa/enable')return send(200,await enableMfa(store,actor,input));
+      if(req.method==='POST'&&url.pathname==='/api/mfa/disable')return send(200,await disableMfa(store,actor,input));
       if(url.pathname.startsWith('/api/platform/')) {
         requireAdmin(actor);
         const action=url.pathname.slice('/api/platform/'.length);
