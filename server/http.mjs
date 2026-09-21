@@ -1,11 +1,11 @@
-import {mailConfig,queueQuote,queueInvoice,queueAccountWelcome,mailState,mailSettings as getMailSettings,saveMailSettings,queueMailTest,platformMailState,queuePlatformMail,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
+import {mailConfig,queueQuote,queueInvoice,queueAccountWelcome,queuePasswordReset,mailState,mailSettings as getMailSettings,saveMailSettings,queueMailTest,platformMailState,queuePlatformMail,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { connectStore, migrate } from './storage.mjs';
 import { snapshot, mutate, fail } from './domain.mjs';
-import { authenticate, login, team, manageUser, changePassword, resetPassword } from './auth.mjs';
+import { authenticate, login, team, manageUser, changePassword, resetPassword, requestPasswordReset } from './auth.mjs';
 import { bootstrapLocal } from './bootstrap.mjs';
 import { backupStore } from './backup.mjs';
 import {requireAdmin,platformState,switchCompany,createCompany,suspendCompany,adminProfile,resetCompanyUser} from './platform.mjs';
@@ -59,6 +59,11 @@ const server=createServer(async(req,res)=>{
       for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>(url.pathname==='/api/company'?800000:100000))fail('Richiesta troppo grande.',413);}
       try {input=JSON.parse(body);}catch{fail('Richiesta non valida.');}
       if(!input||Array.isArray(input)||typeof input!=='object')fail('Richiesta non valida.');
+    }
+    if(req.method==='POST'&&url.pathname==='/api/request-password-reset') {
+      const reset=await requestPasswordReset(store,input,req.socket.remoteAddress);
+      if(reset)await queuePasswordReset(store,reset,mailSettings);
+      return send(200,{ok:true,message:'Se i dati corrispondono a un account attivo, riceverai un link via email.'});
     }
     if(req.method==='POST'&&url.pathname==='/api/login') {
       const result=await login(store,input,req.socket.remoteAddress);

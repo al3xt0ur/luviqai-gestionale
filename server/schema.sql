@@ -419,3 +419,20 @@ DO $$ BEGIN
   INSERT INTO schema_version(version) VALUES(14);
  END IF;
 END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=15) THEN
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_kind_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_kind_check CHECK(kind IN ('quote','response','account','test','platform','invoice','password_reset'));
+
+  CREATE TABLE IF NOT EXISTS password_reset_rate (
+    key text PRIMARY KEY,
+    window_start bigint NOT NULL,
+    count integer NOT NULL CHECK(count>=0)
+  );
+
+  INSERT INTO schema_version(version) VALUES(15);
+ END IF;
+END $$

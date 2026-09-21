@@ -10,7 +10,7 @@ export async function post(path:string,input:unknown,csrf?:string,tenantId?:stri
 }
 
 export function Access({children}:{children:(session:Session,logout:()=>void,home:()=>void)=>ReactNode}) {
-  const [session,setSession]=useState<Session|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+  const [session,setSession]=useState<Session|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[resetBusy,setResetBusy]=useState(false),[resetMessage,setResetMessage]=useState('');
   const [token,setToken]=useState(()=>new URLSearchParams(location.hash.slice(1)).get('reset'));
   useEffect(()=>{fetch('/api/me').then(async r=>{if(r.ok)setSession(await r.json());else if(r.status!==401)throw Error('Server non disponibile.');}).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
   async function logout(){try{if(session)await post('logout',{},session.csrf);}catch{}setSession(null);}
@@ -21,6 +21,15 @@ export function Access({children}:{children:(session:Session,logout:()=>void,hom
       if(token){await post('reset-password',{token,password:form.password});setToken(null);history.replaceState(null,'',location.pathname);setMessage('Password aggiornata. Accedi con la nuova password.');}
       else setSession(await post('login',form));
     }catch(e:any){setError(e.message);}finally{setBusy(false);}
+  }
+  async function requestReset(e:React.FormEvent<HTMLFormElement>){
+    e.preventDefault();setResetBusy(true);setError('');setResetMessage('');
+    try{
+      const form=Object.fromEntries(new FormData(e.currentTarget));
+      const result=await post('request-password-reset',form);
+      setResetMessage(result.message||'Se i dati corrispondono a un account attivo, riceverai un link via email.');
+      e.currentTarget.reset();
+    }catch(e:any){setError(e.message)}finally{setResetBusy(false)}
   }
   if(loading)return <div className="auth-shell"><p>Verifica accesso…</p></div>;
   async function home(){if(!session)return;try{setSession(await post('platform/switch',{},session.csrf));}catch{location.reload();}}
@@ -33,7 +42,7 @@ export function Access({children}:{children:(session:Session,logout:()=>void,hom
     <label>{token?'Nuova password':'Password'}<input name="password" type="password" autoComplete={token?'new-password':'current-password'} required minLength={token?12:undefined} maxLength={200}/></label>
     {error&&<div className="alert error" role="alert">{error}</div>}{message&&<div className="alert success">{message}</div>}
     <button disabled={busy}>{busy?'Attendi…':token?'Aggiorna password':'Accedi'}</button>
-  </form><details><summary>Hai dimenticato la password?</summary><p>Chiedi al gestore dell’app un link di recupero personale. Nella prova locale il link viene generato dal comando di amministrazione e scade dopo 30 minuti; non vengono inviate email.</p></details><small>Realizzata da luviqAI · Versione riservata<br/><a href="/privacy.html">Privacy Policy</a> · <a href="/cookie.html">Cookie Policy</a> · <a href="/terms.html">Termini di utilizzo</a></small></section></div>;
+  </form>{!token&&<details><summary>Hai dimenticato la password?</summary><form onSubmit={requestReset}><p>Inserisci il codice azienda e l’email del tuo account. Se i dati corrispondono a un account attivo, riceverai un link monouso valido 30 minuti.</p><label>Codice azienda<input name="slug" autoComplete="organization" required placeholder="es. my-clean"/></label><label>Email<input name="email" type="email" autoComplete="email" required/></label>{resetMessage&&<div className="alert success" role="status">{resetMessage}</div>}<button disabled={resetBusy}>{resetBusy?'Invio…':'Invia link di recupero'}</button></form></details>}<small>Realizzata da luviqAI · Versione riservata<br/><a href="/privacy.html">Privacy Policy</a> · <a href="/cookie.html">Cookie Policy</a> · <a href="/terms.html">Termini di utilizzo</a></small></section></div>;
 }
 
 export function Account({session,company,team,onSaved,onLogout}:{session:Session;company:any;team:any[];onSaved:()=>Promise<void>;onLogout:()=>void}) {

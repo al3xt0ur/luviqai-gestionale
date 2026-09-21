@@ -127,6 +127,40 @@ export async function changePassword(store,actor,input) {
   });
 }
 
+async function useResetRate(tx,key,limit,time=Date.now()){
+  const windowMs=60*60*1000;
+  let row=await one(tx,'SELECT * FROM password_reset_rate WHERE key=$1 FOR UPDATE',[key]);
+  if(!row){
+    await tx.query('INSERT INTO password_reset_rate(key,window_start,count) VALUES($1,$2,1)',[key,time]);
+    return true;
+  }
+  const expired=time-Number(row.window_start)>=windowMs;
+  const count=expired?1:Number(row.count)+1;
+  await tx.query('UPDATE password_reset_rate SET window_start=$2,count=$3 WHERE key=$1',[key,expired?time:Number(row.window_start),count]);
+  return count<=limit;
+}
+
+export async function requestPasswordReset(store,input,ip='') {
+  const slug=String(input?.slug||'').trim().toLowerCase().slice(0,100);
+  const email=String(input?.email||'').trim().toLowerCase().slice(0,300);
+  const time=Date.now();
+  return store.transaction(async tx=>{
+    const ipAllowed=await useResetRate(tx,digest('reset-ip:'+String(ip||'')),20,time);
+    const accountAllowed=await useResetRate(tx,digest('reset-account:'+slug+'\0'+email),3,time);
+    if(!ipAllowed||!accountAllowed)return null;
+    if(!/^[a-z0-9-]{3,50}$/.test(slug)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return null;
+    const user=await one(tx,`SELECT u.id,u.tenant_id,u.email,u.name,t.name AS tenant_name,t.slug AS tenant_slug
+      FROM users u JOIN tenants t ON t.id=u.tenant_id
+      WHERE t.slug=$1 AND u.email=$2 AND u.active=true AND t.active=true
+      FOR UPDATE OF u`,[slug,email]);
+    if(!user)return null;
+    const token=secret();
+    await tx.query('DELETE FROM resets WHERE user_id=$1',[user.id]);
+    await tx.query('INSERT INTO resets(token_hash,user_id,expires) VALUES($1,$2,$3)',[digest(token),user.id,time+30*60000]);
+    return {token,tenantId:user.tenant_id,email:user.email,name:user.name,tenantName:user.tenant_name,slug:user.tenant_slug};
+  });
+}
+
 export async function createReset(store,slug,email) {
   const token=secret();
   await store.transaction(async tx=>{
