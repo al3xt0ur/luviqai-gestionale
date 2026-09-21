@@ -399,6 +399,7 @@ DO $$ BEGIN
   CREATE INDEX IF NOT EXISTS jobs_quote_idx ON jobs(tenant_id,quote_id) WHERE quote_id IS NOT NULL;
   CREATE INDEX IF NOT EXISTS jobs_package_idx ON jobs(tenant_id,package_id) WHERE package_id IS NOT NULL;
 
+  ALTER TABLE interventions ALTER COLUMN package_id DROP NOT NULL;
   ALTER TABLE interventions ADD COLUMN IF NOT EXISTS job_id integer;
   IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='interventions_job_fk') THEN
     ALTER TABLE interventions ADD CONSTRAINT interventions_job_fk
