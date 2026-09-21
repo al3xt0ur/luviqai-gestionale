@@ -1,0 +1,55 @@
+name: Backup produzione cifrato
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/backup-production.yml'
+      - 'scripts/secure-backup.mjs'
+      - 'server/backup-crypto.mjs'
+      - 'server/backup.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  backup-and-restore-check:
+    name: Backup produzione e prova restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+      BACKUP_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_BACKUP_ENCRYPTION_KEY }}
+      BACKUP_FILE: backups/production-${{ github.run_id }}.luviqbak
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: '11.19.0'
+          run_install: false
+      - name: Verifica segreti richiesti
+        shell: bash
+        run: |
+          test -n "$DATABASE_URL" || { echo "::error::PRODUCTION_DATABASE_URL non configurato"; exit 1; }
+          test -n "$BACKUP_ENCRYPTION_KEY" || { echo "::error::PRODUCTION_BACKUP_ENCRYPTION_KEY non configurato"; exit 1; }
+      - name: Installa dipendenze
+        run: pnpm install --frozen-lockfile
+      - name: Crea backup cifrato
+        run: node scripts/secure-backup.mjs backup "$BACKUP_FILE"
+      - name: Prova il ripristino su database temporaneo
+        run: node scripts/secure-backup.mjs verify "$BACKUP_FILE"
+      - name: Conserva copia esterna cifrata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: luviqai-production-backup-${{ github.run_id }}
+          path: ${{ env.BACKUP_FILE }}
+          if-no-files-found: error
+          retention-days: 30

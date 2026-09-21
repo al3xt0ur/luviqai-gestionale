@@ -50,3 +50,30 @@ export async function platformMonitoring(store,actor,{mail,storeKind}={}){
   endpoints:endpoints.map(r=>({path:r.path,calls:Number(r.calls),errors:Number(r.errors),avgMs:Number(r.avg_ms)}))
  };
 }
+
+
+export async function publicHealth(store,{errorThreshold=5,windowMinutes=15}={}){
+ const checkedAt=now(),since=new Date(Date.now()-windowMinutes*60000).toISOString();
+ try{
+  const [db,errorStats]=await Promise.all([
+   one(store,'SELECT 1 AS ok'),
+   one(store,'SELECT count(*)::int AS errors FROM technical_log WHERE date>=$1 AND status>=500',[since])
+  ]);
+  const errors=Number(errorStats?.errors||0);
+  const databaseOk=db?.ok===1;
+  const degraded=errors>=errorThreshold;
+  return {
+   ok:databaseOk&&!degraded,
+   status:databaseOk?(degraded?'degraded':'ok'):'down',
+   checkedAt,
+   checks:{database:databaseOk?'ok':'down',recentErrors:degraded?'critical':'ok'},
+   windowMinutes
+  };
+ }catch{
+  return {
+   ok:false,status:'down',checkedAt,
+   checks:{database:'down',recentErrors:'unknown'},
+   windowMinutes
+  };
+ }
+}

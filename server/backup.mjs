@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {one,rows} from './storage.mjs';
 import {importPackageCatalog} from './catalog.mjs';
 
-const tables=['tenants','users','tenant_mail_settings','clients','package_templates','packages','quotes','invoices','mail_messages','quote_links','notifications','interventions','audit','requests','imports','platform_audit'];
+const tables=['tenants','users','tenant_mail_settings','clients','package_templates','packages','quotes','invoices','jobs','mail_messages','quote_links','notifications','interventions','audit','requests','imports','platform_audit'];
 const checksum=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 export async function backupStore(store,path) {
@@ -27,6 +27,7 @@ export async function restoreStore(store,path) {
   if(backup.data.platform_audit===undefined)backup.data.platform_audit=[];
   if(backup.data.quotes===undefined)backup.data.quotes=[];
   if(backup.data.invoices===undefined)backup.data.invoices=[];
+  if(backup.data.jobs===undefined)backup.data.jobs=[];
   for(const name of ['tenant_mail_settings','mail_messages','quote_links','notifications'])if(backup.data[name]===undefined)backup.data[name]=[];
   const legacyCatalog=backup.data.package_templates===undefined;
   if(legacyCatalog)backup.data.package_templates=[];

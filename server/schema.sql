@@ -372,3 +372,99 @@ DO $$ BEGIN
   INSERT INTO schema_version(version) VALUES(13);
  END IF;
 END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=14) THEN
+  CREATE TABLE IF NOT EXISTS jobs (
+    tenant_id text NOT NULL REFERENCES tenants(id),
+    id integer NOT NULL,
+    client_id integer NOT NULL,
+    quote_id integer,
+    package_id integer,
+    title text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    status text NOT NULL CHECK(status IN ('draft','planned','active','completed','cancelled')),
+    due_date text,
+    revision integer NOT NULL DEFAULT 1 CHECK(revision>0),
+    created text NOT NULL,
+    updated text NOT NULL,
+    PRIMARY KEY(tenant_id,id),
+    FOREIGN KEY(tenant_id,client_id) REFERENCES clients(tenant_id,id),
+    FOREIGN KEY(tenant_id,quote_id) REFERENCES quotes(tenant_id,id),
+    FOREIGN KEY(tenant_id,package_id) REFERENCES packages(tenant_id,id)
+  );
+  CREATE INDEX IF NOT EXISTS jobs_client_idx ON jobs(tenant_id,client_id,status);
+  CREATE INDEX IF NOT EXISTS jobs_quote_idx ON jobs(tenant_id,quote_id) WHERE quote_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS jobs_quote_active_unique ON jobs(tenant_id,quote_id) WHERE quote_id IS NOT NULL AND status<>'cancelled';
+  CREATE INDEX IF NOT EXISTS jobs_package_idx ON jobs(tenant_id,package_id) WHERE package_id IS NOT NULL;
+
+  ALTER TABLE interventions ALTER COLUMN package_id DROP NOT NULL;
+  ALTER TABLE interventions ADD COLUMN IF NOT EXISTS job_id integer;
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='interventions_job_fk') THEN
+    ALTER TABLE interventions ADD CONSTRAINT interventions_job_fk
+      FOREIGN KEY(tenant_id,job_id) REFERENCES jobs(tenant_id,id);
+  END IF;
+  CREATE INDEX IF NOT EXISTS interventions_job_idx ON interventions(tenant_id,job_id,date) WHERE job_id IS NOT NULL;
+
+  GRANT SELECT,INSERT,UPDATE ON jobs TO luviq_tenant;
+  ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
+  IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='jobs' AND policyname='tenant_isolation') THEN
+    CREATE POLICY tenant_isolation ON jobs TO luviq_tenant
+      USING(tenant_id=current_setting('app.tenant_id',true))
+      WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+  END IF;
+
+  INSERT INTO schema_version(version) VALUES(14);
+ END IF;
+END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=15) THEN
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_kind_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_kind_check CHECK(kind IN ('quote','response','account','test','platform','invoice','password_reset'));
+
+  CREATE TABLE IF NOT EXISTS password_reset_rate (
+    key text PRIMARY KEY,
+    window_start bigint NOT NULL,
+    count integer NOT NULL CHECK(count>=0)
+  );
+
+  INSERT INTO schema_version(version) VALUES(15);
+ END IF;
+END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=16) THEN
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled boolean NOT NULL DEFAULT false;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret_enc text;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_recovery jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+  CREATE TABLE IF NOT EXISTS mfa_challenges (
+    token_hash text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires bigint NOT NULL,
+    failures integer NOT NULL DEFAULT 0 CHECK(failures>=0)
+  );
+  CREATE INDEX IF NOT EXISTS mfa_challenges_user_idx ON mfa_challenges(user_id);
+
+  INSERT INTO schema_version(version) VALUES(16);
+ END IF;
+END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=17) THEN
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at bigint NOT NULL DEFAULT 0;
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_seen_at bigint NOT NULL DEFAULT 0;
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip_address text NOT NULL DEFAULT '';
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_agent text NOT NULL DEFAULT '';
+  INSERT INTO schema_version(version) VALUES(17);
+ END IF;
+END $$

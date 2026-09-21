@@ -1,23 +1,25 @@
-import {mailConfig,queueQuote,queueInvoice,queueAccountWelcome,mailState,mailSettings as getMailSettings,saveMailSettings,queueMailTest,platformMailState,queuePlatformMail,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
+import {mailConfig,queueQuote,queueInvoice,queueAccountWelcome,queuePasswordReset,mailState,mailSettings as getMailSettings,saveMailSettings,queueMailTest,platformMailState,queuePlatformMail,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { connectStore, migrate } from './storage.mjs';
 import { snapshot, mutate, fail } from './domain.mjs';
-import { authenticate, login, team, manageUser, changePassword, resetPassword } from './auth.mjs';
+import { authenticate, login, verifyMfaLogin, mfaStatus, beginMfaSetup, enableMfa, disableMfa, activeSessions, revokeSession, revokeOtherSessions, team, manageUser, changePassword, resetPassword, requestPasswordReset } from './auth.mjs';
 import { bootstrapLocal } from './bootstrap.mjs';
 import { backupStore } from './backup.mjs';
 import {requireAdmin,platformState,switchCompany,createCompany,suspendCompany,adminProfile,resetCompanyUser} from './platform.mjs';
 import {quotePDF} from './quote-pdf.mjs';
 import {invoicePDF} from './invoice-pdf.mjs';
 import {createAssistant} from './ai.mjs';
-import {recordTechnicalLog,platformMonitoring} from './monitoring.mjs';
+import {recordTechnicalLog,platformMonitoring,publicHealth} from './monitoring.mjs';
 import {privacyState,privacySubjects,createPrivacyRequest,updatePrivacyRequest,privacyExport} from './privacy.mjs';
+import {clientIp} from './request-ip.mjs';
 const assistant=createAssistant();
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const production=process.env.NODE_ENV==='production';
+const trustProxy=production;
 const port=Number(process.env.PORT||3000);
 const origin=process.env.APP_ORIGIN||`http://localhost:${port}`;
 if(production&&(!process.env.DATABASE_URL||!origin.startsWith('https://')))throw Error('In produzione sono obbligatori DATABASE_URL e APP_ORIGIN HTTPS.');
@@ -49,7 +51,7 @@ const server=createServer(async(req,res)=>{
   try {
     if(!allowedHosts.has(req.headers.host))return send(403,{error:'Host non consentito.'});
     const url=new URL(req.url,origin);requestPath=url.pathname;
-    if(req.method==='GET'&&url.pathname==='/api/health')return send(200,{ok:true});
+    if(req.method==='GET'&&url.pathname==='/api/health'){const health=await publicHealth(store);return send(health.ok?200:503,health);}
     let input;
     if(req.method==='POST') {
       if(req.headers.origin&&!allowedOrigins.has(req.headers.origin))fail('Origine non consentita.',403);
@@ -60,8 +62,19 @@ const server=createServer(async(req,res)=>{
       try {input=JSON.parse(body);}catch{fail('Richiesta non valida.');}
       if(!input||Array.isArray(input)||typeof input!=='object')fail('Richiesta non valida.');
     }
+    if(req.method==='POST'&&url.pathname==='/api/request-password-reset') {
+      const reset=await requestPasswordReset(store,input,clientIp(req,{trustProxy}));
+      if(reset)await queuePasswordReset(store,reset,mailSettings);
+      return send(200,{ok:true,message:'Se i dati corrispondono a un account attivo, riceverai un link via email.'});
+    }
     if(req.method==='POST'&&url.pathname==='/api/login') {
-      const result=await login(store,input,req.socket.remoteAddress);
+      const result=await login(store,input,clientIp(req,{trustProxy}),req.headers['user-agent']);
+      if(result.mfaRequired)return send(200,result);
+      res.setHeader('Set-Cookie',cookie(result.token));
+      return send(200,{user:result.user,csrf:result.csrf});
+    }
+    if(req.method==='POST'&&url.pathname==='/api/mfa/login') {
+      const result=await verifyMfaLogin(store,input,{ip:clientIp(req,{trustProxy}),userAgent:req.headers['user-agent']});
       res.setHeader('Set-Cookie',cookie(result.token));
       return send(200,{user:result.user,csrf:result.csrf});
     }
@@ -88,6 +101,13 @@ const server=createServer(async(req,res)=>{
       if(req.method==='POST'&&url.pathname==='/api/password') {
         await changePassword(store,actor,input);res.setHeader('Set-Cookie',cookie('',true));return send(200,{ok:true});
       }
+      if(req.method==='GET'&&url.pathname==='/api/mfa/status')return send(200,await mfaStatus(store,actor));
+      if(req.method==='POST'&&url.pathname==='/api/mfa/setup')return send(200,await beginMfaSetup(store,actor));
+      if(req.method==='POST'&&url.pathname==='/api/mfa/enable')return send(200,await enableMfa(store,actor,input));
+      if(req.method==='POST'&&url.pathname==='/api/mfa/disable')return send(200,await disableMfa(store,actor,input));
+      if(req.method==='GET'&&url.pathname==='/api/sessions')return send(200,{sessions:await activeSessions(store,actor)});
+      if(req.method==='POST'&&url.pathname==='/api/sessions/revoke')return send(200,await revokeSession(store,actor,input));
+      if(req.method==='POST'&&url.pathname==='/api/sessions/revoke-others')return send(200,await revokeOtherSessions(store,actor));
       if(url.pathname.startsWith('/api/platform/')) {
         requireAdmin(actor);
         const action=url.pathname.slice('/api/platform/'.length);
@@ -153,7 +173,7 @@ const server=createServer(async(req,res)=>{
       if(req.method==='GET'&&url.pathname==='/api/export') {
         if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
         const state=await snapshot(store,actor),csv=[['Tipo','ID','Cliente','Dati']];
-        for(const type of ['clients','packages','interventions','audit','catalog','quotes','invoices'])for(const item of state[type])csv.push([type,item.id,item.clientId||'',JSON.stringify(item)]);
+        for(const type of ['clients','packages','jobs','interventions','audit','catalog','quotes','invoices'])for(const item of state[type])csv.push([type,item.id,item.clientId||'',JSON.stringify(item)]);
         const cell=v=>'"'+String(v).replace(/^[=+@-]/,"'$&").replaceAll('"','""')+'"';
         res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="myclean-esportazione.csv"','Cache-Control':'no-store'});
         return res.end('\ufeff'+csv.map(r=>r.map(cell).join(';')).join('\r\n'));
