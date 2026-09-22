@@ -170,7 +170,8 @@ const server=createServer(async(req,res)=>{
         if(req.method==='GET'&&!attachmentMatch[3]){
           const file=await downloadObject(attachmentStorage,meta.storage_key);
           const safe=String(meta.filename||'file').replace(/[\r\n"]/g,'_');
-          res.writeHead(200,{'Content-Type':meta.content_type||file.contentType,'Content-Disposition':`attachment; filename="${safe}"`,'Cache-Control':'private, no-store','Content-Length':file.buffer.length});
+          const disposition=url.searchParams.get('inline')==='1'?'inline':'attachment';
+          res.writeHead(200,{'Content-Type':meta.content_type||file.contentType,'Content-Disposition':`${disposition}; filename="${safe}"`,'Cache-Control':'private, no-store','Content-Length':file.buffer.length});
           return res.end(file.buffer);
         }
         if(req.method==='POST'&&attachmentMatch[3]){
