@@ -1,4 +1,14 @@
+# Aggiornamento PR #1
+
+Ramo riallineato a main `c45d70e` e develop `dcc757b`; schema operativo 20. Procedura corrente: [PR1-VERIFICATION.md](PR1-VERIFICATION.md). Avvio PostgreSQL senza migrazioni automatiche; migrazione amministrativa esplicita prima del deploy. PR destinata a develop, ancora in bozza.
+
 # Riprendere lo sviluppo
+
+## Aggiornamento 21 settembre 2026
+
+Produzione online su Render (`app.luviqai.it`), PostgreSQL Supabase e invio email Resend. Base analizzata: `846b55b`, schema 13, inclusi monitoraggio e privacy. Le sezioni datate sotto descrivono consegne precedenti.
+
+Prima fase staging sul ramo `codex/isolated-ci`: workflow Linux/Windows e isolamento automatico dei test, documentati in `docs/STAGING.md`. Non configurare il flag di test su Render. Non unire su main senza considerare il deploy automatico. Il sottodominio OVH di test e il database staging non sono ancora creati. Per questa fase nessuna migrazione o connessione al database operativo.
 
 ## Riferimenti correnti — 17 settembre 2026
 

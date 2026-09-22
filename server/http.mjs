@@ -1,27 +1,33 @@
-import {mailConfig,queueQuote,mailState,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
+import {dashboard} from './operations.mjs';
+import {mailConfig,queueQuote,queueInvoice,queueAccountWelcome,queuePasswordReset,mailState,mailSettings as getMailSettings,saveMailSettings,queueMailTest,platformMailState,queuePlatformMail,messageDetail,messageEML,readNotification,cancelAttempt,dispatchOne,publicQuote,publicPDF,respondQuote} from './mail.mjs';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { connectStore, migrate } from './storage.mjs';
+import { connectStore, initializeStore } from './storage.mjs';
 import { snapshot, mutate, fail } from './domain.mjs';
-import { authenticate, login, team, manageUser, changePassword, resetPassword } from './auth.mjs';
+import { authenticate, login, verifyMfaLogin, mfaStatus, beginMfaSetup, enableMfa, disableMfa, activeSessions, revokeSession, revokeOtherSessions, team, manageUser, changePassword, resetPassword, requestPasswordReset } from './auth.mjs';
 import { bootstrapLocal } from './bootstrap.mjs';
 import { backupStore } from './backup.mjs';
 import {requireAdmin,platformState,switchCompany,createCompany,suspendCompany,adminProfile,resetCompanyUser} from './platform.mjs';
 import {quotePDF} from './quote-pdf.mjs';
 import {invoicePDF} from './invoice-pdf.mjs';
+import {interventionReportPDF} from './intervention-report-pdf.mjs';
 import {createAssistant} from './ai.mjs';
+import {recordTechnicalLog,platformMonitoring,publicHealth} from './monitoring.mjs';
+import {privacyState,privacySubjects,createPrivacyRequest,updatePrivacyRequest,privacyExport} from './privacy.mjs';
+import {clientIp} from './request-ip.mjs';
 const assistant=createAssistant();
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const production=process.env.NODE_ENV==='production';
+const trustProxy=production;
 const port=Number(process.env.PORT||3000);
 const origin=process.env.APP_ORIGIN||`http://localhost:${port}`;
 if(production&&(!process.env.DATABASE_URL||!origin.startsWith('https://')))throw Error('In produzione sono obbligatori DATABASE_URL e APP_ORIGIN HTTPS.');
 const dataDir=resolve(root,'data');
 const store=await connectStore({url:process.env.DATABASE_URL,path:process.env.PGLITE_PATH||resolve(dataDir,'postgres')});
-await migrate(store);
+await initializeStore(store);
 const mailSettings=mailConfig(process.env,origin);
 let mailWorking=false;
 async function mailTick(){if(mailWorking)return;mailWorking=true;try{await store.query("UPDATE mail_messages SET status='uncertain',error='Invio interrotto: verificare la casella del mittente.' WHERE status='sending' AND updated<$1",[new Date(Date.now()-120000).toISOString()]);for(let n=0;n<5&&await dispatchOne(store,mailSettings);n++);}catch(error){console.error('Elaborazione email non riuscita:',error.code||error.name);}finally{mailWorking=false;}}
@@ -37,6 +43,8 @@ const allowedHosts=new Set([...allowedOrigins].map(o=>new URL(o).host));
 const cookie=(token,clear=false)=>`luviq_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${clear?0:28800}${production?'; Secure':''}`;
 
 const server=createServer(async(req,res)=>{
+  const requestStarted=Date.now();let requestPath='';let requestActor=null;let requestError='';
+  res.on('finish',()=>{if(requestPath.startsWith('/api/')&&requestPath!=='/api/health')void recordTechnicalLog(store,{method:req.method,path:requestPath,status:res.statusCode,durationMs:Date.now()-requestStarted,tenantId:requestActor?.tenantId,userId:requestActor?.id,error:requestError});});
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Referrer-Policy','no-referrer');
   res.setHeader('X-Frame-Options','DENY');
@@ -44,8 +52,8 @@ const server=createServer(async(req,res)=>{
   const send=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
   try {
     if(!allowedHosts.has(req.headers.host))return send(403,{error:'Host non consentito.'});
-    const url=new URL(req.url,origin);
-    if(req.method==='GET'&&url.pathname==='/api/health')return send(200,{ok:true});
+    const url=new URL(req.url,origin);requestPath=url.pathname;
+    if(req.method==='GET'&&url.pathname==='/api/health'){const health=await publicHealth(store);return send(health.ok?200:503,health);}
     let input;
     if(req.method==='POST') {
       if(req.headers.origin&&!allowedOrigins.has(req.headers.origin))fail('Origine non consentita.',403);
@@ -56,8 +64,19 @@ const server=createServer(async(req,res)=>{
       try {input=JSON.parse(body);}catch{fail('Richiesta non valida.');}
       if(!input||Array.isArray(input)||typeof input!=='object')fail('Richiesta non valida.');
     }
+    if(req.method==='POST'&&url.pathname==='/api/request-password-reset') {
+      const reset=await requestPasswordReset(store,input,clientIp(req,{trustProxy}));
+      if(reset)await queuePasswordReset(store,reset,mailSettings);
+      return send(200,{ok:true,message:'Se i dati corrispondono a un account attivo, riceverai un link via email.'});
+    }
     if(req.method==='POST'&&url.pathname==='/api/login') {
-      const result=await login(store,input,req.socket.remoteAddress);
+      const result=await login(store,input,clientIp(req,{trustProxy}),req.headers['user-agent']);
+      if(result.mfaRequired)return send(200,result);
+      res.setHeader('Set-Cookie',cookie(result.token));
+      return send(200,{user:result.user,csrf:result.csrf});
+    }
+    if(req.method==='POST'&&url.pathname==='/api/mfa/login') {
+      const result=await verifyMfaLogin(store,input,{ip:clientIp(req,{trustProxy}),userAgent:req.headers['user-agent']});
       res.setHeader('Set-Cookie',cookie(result.token));
       return send(200,{user:result.user,csrf:result.csrf});
     }
@@ -73,7 +92,7 @@ const server=createServer(async(req,res)=>{
     }
     if(url.pathname.startsWith('/api/public/quotes/'))fail('Collegamento non valido o scaduto.',404);
     if(url.pathname.startsWith('/api/')) {
-      const actor=await authenticate(store,req.headers.cookie);
+      const actor=await authenticate(store,req.headers.cookie);requestActor=actor;
       if(!actor)fail('Accedi per continuare.',401);
       if(req.method==='POST'&&req.headers['x-csrf-token']!==actor.csrf)fail('Sessione non valida. Ricarica la pagina.',403);
       if(req.method==='GET'&&url.pathname==='/api/me')return send(200,{user:{id:actor.id,tenantId:actor.tenantId,homeTenantId:actor.homeTenantId,name:actor.name,email:actor.email,role:actor.role},csrf:actor.csrf});
@@ -84,17 +103,32 @@ const server=createServer(async(req,res)=>{
       if(req.method==='POST'&&url.pathname==='/api/password') {
         await changePassword(store,actor,input);res.setHeader('Set-Cookie',cookie('',true));return send(200,{ok:true});
       }
+      if(req.method==='GET'&&url.pathname==='/api/mfa/status')return send(200,await mfaStatus(store,actor));
+      if(req.method==='POST'&&url.pathname==='/api/mfa/setup')return send(200,await beginMfaSetup(store,actor));
+      if(req.method==='POST'&&url.pathname==='/api/mfa/enable')return send(200,await enableMfa(store,actor,input));
+      if(req.method==='POST'&&url.pathname==='/api/mfa/disable')return send(200,await disableMfa(store,actor,input));
+      if(req.method==='GET'&&url.pathname==='/api/sessions')return send(200,{sessions:await activeSessions(store,actor)});
+      if(req.method==='POST'&&url.pathname==='/api/sessions/revoke')return send(200,await revokeSession(store,actor,input));
+      if(req.method==='POST'&&url.pathname==='/api/sessions/revoke-others')return send(200,await revokeOtherSessions(store,actor));
       if(url.pathname.startsWith('/api/platform/')) {
         requireAdmin(actor);
         const action=url.pathname.slice('/api/platform/'.length);
         if(req.method==='GET'&&action==='state')return send(200,await platformState(store,actor));
         if(req.method==='GET'&&action==='users')return send(200,await team(store,{tenantId:url.searchParams.get('company')}));
+        if(req.method==='GET'&&action==='mail')return send(200,await platformMailState(store,actor,mailSettings));
+        if(req.method==='GET'&&action==='monitoring')return send(200,await platformMonitoring(store,actor,{mail:mailSettings,storeKind:store.kind}));
+        if(req.method==='GET'&&action==='privacy')return send(200,await privacyState(store,actor));
+        if(req.method==='GET'&&action==='privacy-subjects')return send(200,await privacySubjects(store,actor,url.searchParams.get('company')));
         if(req.method==='POST') {
           if(action==='switch')return send(200,await switchCompany(store,actor,input));
-          if(action==='create')return send(200,await createCompany(store,actor,input,req.headers['idempotency-key']));
+          if(action==='create'){const result=await createCompany(store,actor,input,req.headers['idempotency-key']);const welcome=await queueAccountWelcome(store,actor,result.user,mailSettings,result.tenantId);return send(200,{...result,welcome});}
           if(action==='status')return send(200,await suspendCompany(store,actor,input));
           if(action==='profile')return send(200,await adminProfile(store,actor,input));
           if(action==='reset-user')return send(200,await resetCompanyUser(store,actor,input));
+          if(action==='mail')return send(200,await queuePlatformMail(store,actor,input,mailSettings));
+          if(action==='privacy')return send(200,await createPrivacyRequest(store,actor,input));
+          if(action==='privacy-status')return send(200,await updatePrivacyRequest(store,actor,input));
+          if(action==='privacy-export'){const data=await privacyExport(store,actor,input.id);const body=JSON.stringify(data,null,2);res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Disposition':`attachment; filename="luviqai-privacy-${input.id}.json"`,'Cache-Control':'no-store'});return res.end(body);}
         }
         fail('Risorsa non trovata.',404);
       }
@@ -106,16 +140,37 @@ const server=createServer(async(req,res)=>{
       if(req.method==='POST'&&url.pathname==='/api/ai/chat')return send(200,await assistant.ask(store,actor,input));
       if(req.method==='POST'&&url.pathname==='/api/ai/confirm')return send(200,await assistant.confirm(store,actor,input));
       if(req.method==='POST'&&url.pathname==='/api/quote-email')return send(200,await queueQuote(store,actor,input,req.headers['idempotency-key'],mailSettings));
+      if(req.method==='POST'&&url.pathname==='/api/invoice-email')return send(200,await queueInvoice(store,actor,input,req.headers['idempotency-key'],mailSettings));
       if(req.method==='GET'&&url.pathname==='/api/mail')return send(200,await mailState(store,actor,mailSettings));
+      if(req.method==='GET'&&url.pathname==='/api/mail-settings')return send(200,await getMailSettings(store,actor,mailSettings));
+      if(req.method==='POST'&&url.pathname==='/api/mail-settings')return send(200,await saveMailSettings(store,actor,input));
+      if(req.method==='POST'&&url.pathname==='/api/mail-settings/test')return send(200,await queueMailTest(store,actor,input,mailSettings));
       if(req.method==='POST'&&url.pathname==='/api/notification-read')return send(200,await readNotification(store,actor,input.id));
       if(req.method==='POST'&&url.pathname==='/api/mail-cancel')return send(200,await cancelAttempt(store,actor,input));
       const messageMatch=url.pathname.match(/^\/api\/mail\/([a-f0-9-]{36})(\/eml)?$/);
       if(req.method==='GET'&&messageMatch){if(messageMatch[2]){const eml=await messageEML(store,actor,messageMatch[1],mailSettings);res.writeHead(200,{'Content-Type':'message/rfc822','Content-Disposition':'attachment; filename="email-preventivo.eml"','Cache-Control':'no-store'});return res.end(eml);}return send(200,await messageDetail(store,actor,messageMatch[1]));}
+      if(req.method==='GET'&&url.pathname==='/api/dashboard') {
+        if(actor.role==='operator')fail('Cruscotto riservato al responsabile.',403);
+        const from=url.searchParams.get('from')||'',to=url.searchParams.get('to')||'';
+        for(const value of [from,to])if(value&&(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value))fail('Periodo non valido.');
+        if(from&&to&&from>to)fail('Periodo non valido.');
+        return send(200,dashboard(await snapshot(store,actor),{from,to}));
+      }
       if(req.method==='GET'&&url.pathname==='/api/state') {
         const state=await snapshot(store,actor);
         return send(200,{...state,team:actor.role!=='operator'?await team(store,actor):[]});
       }
-      if(req.method==='POST'&&url.pathname==='/api/user')return send(200,await manageUser(store,actor,input));
+      if(req.method==='POST'&&url.pathname==='/api/user'){const result=await manageUser(store,actor,input);if(result.created)result.welcome=await queueAccountWelcome(store,actor,result.user,mailSettings);return send(200,result);}
+      const interventionReportMatch=url.pathname.match(/^\/api\/interventions\/(\d+)\/report\.pdf$/);
+      if(req.method==='GET'&&interventionReportMatch){
+        const state=await snapshot(store,actor),intervention=state.interventions.find(i=>i.id===Number(interventionReportMatch[1]));
+        if(!intervention)fail('Intervento non trovato.',404);
+        const client=state.clients.find(c=>c.id===intervention.clientId)||fail('Cliente non trovato.',404);
+        const job=intervention.jobId?state.jobs.find(j=>j.id===intervention.jobId):null;
+        const pdf=await interventionReportPDF({intervention,client,job,company:state.company});
+        res.writeHead(200,{'Content-Type':'application/pdf','Content-Disposition':'attachment; filename="rapportino-intervento-'+intervention.id+'.pdf"','Cache-Control':'no-store','Content-Length':pdf.length});
+        return res.end(pdf);
+      }
       const invoicePdfMatch=url.pathname.match(/^\/api\/invoices\/(\d+)\/pdf$/);
       if(req.method==='GET'&&invoicePdfMatch){
         if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
@@ -137,7 +192,7 @@ const server=createServer(async(req,res)=>{
       if(req.method==='GET'&&url.pathname==='/api/export') {
         if(actor.role==='operator')fail('Esportazione riservata al responsabile.',403);
         const state=await snapshot(store,actor),csv=[['Tipo','ID','Cliente','Dati']];
-        for(const type of ['clients','packages','interventions','audit','catalog','quotes','invoices'])for(const item of state[type])csv.push([type,item.id,item.clientId||'',JSON.stringify(item)]);
+        for(const type of ['clients','packages','jobs','interventions','audit','catalog','quotes','invoices'])for(const item of state[type])csv.push([type,item.id,item.clientId||'',JSON.stringify(item)]);
         const cell=v=>'"'+String(v).replace(/^[=+@-]/,"'$&").replaceAll('"','""')+'"';
         res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="myclean-esportazione.csv"','Cache-Control':'no-store'});
         return res.end('\ufeff'+csv.map(r=>r.map(cell).join(';')).join('\r\n'));
@@ -157,7 +212,7 @@ const server=createServer(async(req,res)=>{
     res.end(readFileSync(target));
   } catch(error) {
     const status=error.status||500;
-    if(status===500)console.error('Errore interno:',error.code||error.name);
+    if(status===500){requestError=String(error?.message||error?.code||error?.name||'Errore interno').slice(0,1000);console.error('Errore interno:',error.code||error.name);}
     if(!res.headersSent)send(status,{error:status===500?'Operazione non riuscita. Riprova o contatta il responsabile.':error.message});
     else res.end();
   }

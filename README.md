@@ -1,4 +1,10 @@
+# Verifica PR operativa
+
+Per le modifiche in questo ramo, migrazione esplicita a schema 20 e collaudo, vedere [PR #1 — verifica operativa](docs/PR1-VERIFICATION.md). Le sezioni storiche sotto non sostituiscono questa procedura.
+
 # luviqAI · Gestionale servizi
+
+Per il nuovo percorso di sviluppo con test isolati, controlli GitHub e staging consultare [Staging e controlli automatici](docs/STAGING.md). `npm.cmd test` isola automaticamente la configurazione operativa.
 
 Prima consegna della versione rivendibile a più imprese. My Clean è la prima azienda configurata. React + TypeScript, backend Node.js, PostgreSQL. Il codice è condiviso su GitHub e il database operativo è PostgreSQL su Supabase. L’applicazione viene avviata localmente; non è stato attivato un incasso automatico.
 

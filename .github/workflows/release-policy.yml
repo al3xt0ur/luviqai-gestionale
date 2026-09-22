@@ -1,0 +1,25 @@
+name: Politica release
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  release-source:
+    name: Release solo da develop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verifica ramo sorgente
+        shell: bash
+        run: |
+          echo "Base: ${{ github.base_ref }}"
+          echo "Head: ${{ github.head_ref }}"
+          if [ "${{ github.head_ref }}" != "develop" ]; then
+            echo "::error::Le release ordinarie verso main devono partire dal ramo develop."
+            exit 1
+          fi
+          echo "Sorgente release valida."

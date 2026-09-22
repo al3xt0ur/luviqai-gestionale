@@ -56,6 +56,9 @@ DO $$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='interventions_source_quote_fk') THEN
   ALTER TABLE interventions ADD CONSTRAINT interventions_source_quote_fk FOREIGN KEY(tenant_id,source_quote_id) REFERENCES quotes(tenant_id,id);
  END IF;
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='interventions_recurrence_fk' AND conrelid='interventions'::regclass) THEN
+  ALTER TABLE interventions ADD CONSTRAINT interventions_recurrence_fk FOREIGN KEY(tenant_id,recurrence_id) REFERENCES recurrence_series(tenant_id,id);
+ END IF;
  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='interventions_team_fk') THEN
   ALTER TABLE interventions ADD CONSTRAINT interventions_team_fk FOREIGN KEY(tenant_id,team_id) REFERENCES teams(tenant_id,id);
  END IF;
@@ -72,4 +75,4 @@ DO $$ DECLARE tab text; BEGIN
  END LOOP;
 END $$
 -- next
-INSERT INTO schema_version(version) VALUES(8) ON CONFLICT DO NOTHING
+INSERT INTO schema_version(version) VALUES(20) ON CONFLICT DO NOTHING

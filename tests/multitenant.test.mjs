@@ -1,3 +1,4 @@
+import '../scripts/test-isolation.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { connectStore,migrate,tenantTransaction,one } from '../server/storage.mjs';

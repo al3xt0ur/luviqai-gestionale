@@ -77,3 +77,25 @@ node tests/browser-quotes.mjs
 ```
 
 È possibile passare il percorso del modulo Playwright come primo argomento. Il browser prova email EML con PDF, collegamento cliente senza sessione, scelta preselezionata, note, conferma, aggiornamento e notifica letta. Le immagini e i documenti di test usano dati fittizi e restano in `test-results/`, escluso da Git.
+
+
+## Invio reale via API HTTPS e mittenti aziendali
+
+Per l'hosting pubblico è supportata anche la modalità **Resend API**, che evita la dipendenza dalle porte SMTP del provider di hosting. Resend espone l'invio tramite API HTTPS e supporta mittenti su domini verificati.
+
+Configurazione di piattaforma:
+
+```dotenv
+MAIL_MODE=resend
+MAIL_FROM=noreply@luviqai.it
+MAIL_FROM_NAME=luviqAI
+RESEND_API_KEY=re_xxxxxxxxx
+APP_ORIGIN=https://app.luviqai.it
+PUBLIC_APP_URL=https://app.luviqai.it
+```
+
+Le comunicazioni di sistema, come la creazione degli account, usano il mittente LuviqAI. Ogni impresa può invece aprire **Email e integrazioni** e configurare nome mittente, email mittente e Reply-To per le comunicazioni operative, come i preventivi.
+
+La password della casella aziendale non viene richiesta né memorizzata. Per poter usare `preventivi@azienda.it` come From, il relativo dominio deve essere autorizzato nel provider email della piattaforma. Il pulsante **Invia email di prova** accoda un messaggio usando esattamente il mittente aziendale configurato; l'esito è visibile in **Email e notifiche**.
+
+La configurazione mittente è isolata per tenant tramite Row Level Security ed è inclusa nei backup logici.

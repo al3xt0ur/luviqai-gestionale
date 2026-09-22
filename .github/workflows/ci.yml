@@ -1,27 +1,45 @@
-name: Test e build
-
+name: Verifiche automatiche
 on:
-  push:
-    branches: [main, codex/operational-workflows]
   pull_request:
-    branches: [main]
-
+    branches: [main, develop]
+  push:
+    branches: [main, develop, 'codex/**', 'feature/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    name: Build e test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
-    env:
-      DATABASE_URL: ''
-      OPENROUTER_API_KEY: ''
-      MAIL_MODE: preview
-      BOOTSTRAP_DEMO: '0'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
-      - run: corepack enable
-      - run: corepack prepare pnpm@11 --activate
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-      - run: pnpm build
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: '11.19.0'
+          run_install: false
+      - name: Installa dipendenze dal lockfile
+        run: pnpm install --frozen-lockfile
+      - name: Build TypeScript e Vite
+        run: pnpm run build
+      - name: Test su database temporanei
+        run: pnpm test
+
+      - name: Installa Chromium per il collaudo UI
+        if: runner.os == 'Linux'
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Collaudo browser dei flussi operativi
+        if: runner.os == 'Linux'
+        run: node tests/browser-operations.mjs

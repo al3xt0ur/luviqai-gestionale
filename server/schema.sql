@@ -265,3 +265,297 @@ DO $$ BEGIN
 END $$
 -- next
 INSERT INTO schema_version(version) VALUES(7) ON CONFLICT DO NOTHING
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=8) THEN
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_kind_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_kind_check CHECK(kind IN ('quote','response','account'));
+  INSERT INTO schema_version(version) VALUES(8);
+ END IF;
+END $$
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=9) THEN
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_kind_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_kind_check CHECK(kind IN ('quote','response','account','test'));
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_mode_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_mode_check CHECK(mode IN ('preview','smtp','resend'));
+  CREATE TABLE IF NOT EXISTS tenant_mail_settings (
+    tenant_id text PRIMARY KEY REFERENCES tenants(id),
+    sender_name text NOT NULL DEFAULT '',
+    sender_email text NOT NULL DEFAULT '',
+    reply_to text NOT NULL DEFAULT '',
+    enabled boolean NOT NULL DEFAULT false,
+    updated text NOT NULL
+  );
+  INSERT INTO schema_version(version) VALUES(9);
+ END IF;
+END $$
+-- next
+GRANT SELECT,INSERT,UPDATE ON tenant_mail_settings TO luviq_tenant
+-- next
+DO $$ BEGIN
+ ALTER TABLE tenant_mail_settings ENABLE ROW LEVEL SECURITY;
+ IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='tenant_mail_settings' AND policyname='tenant_isolation') THEN
+  CREATE POLICY tenant_isolation ON tenant_mail_settings TO luviq_tenant USING(tenant_id=current_setting('app.tenant_id',true)) WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+ END IF;
+END $$
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=10) THEN
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_kind_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_kind_check CHECK(kind IN ('quote','response','account','test','platform'));
+  INSERT INTO schema_version(version) VALUES(10);
+ END IF;
+END $$
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=11) THEN
+  ALTER TABLE mail_messages ADD COLUMN IF NOT EXISTS invoice_id integer;
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_kind_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_kind_check CHECK(kind IN ('quote','response','account','test','platform','invoice'));
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='mail_messages_invoice_fk') THEN
+    ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_invoice_fk FOREIGN KEY(tenant_id,invoice_id) REFERENCES invoices(tenant_id,id);
+  END IF;
+  CREATE INDEX IF NOT EXISTS mail_messages_invoice_idx ON mail_messages(tenant_id,invoice_id,created DESC) WHERE invoice_id IS NOT NULL;
+  INSERT INTO schema_version(version) VALUES(11);
+ END IF;
+END $$
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=12) THEN
+  CREATE TABLE IF NOT EXISTS technical_log (
+    id text PRIMARY KEY,
+    date text NOT NULL,
+    method text NOT NULL,
+    path text NOT NULL,
+    status integer NOT NULL,
+    duration_ms integer NOT NULL,
+    tenant_id text,
+    user_id text,
+    error text NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS technical_log_date_idx ON technical_log(date DESC);
+  CREATE INDEX IF NOT EXISTS technical_log_status_idx ON technical_log(status,date DESC);
+  CREATE INDEX IF NOT EXISTS technical_log_tenant_idx ON technical_log(tenant_id,date DESC);
+  INSERT INTO schema_version(version) VALUES(12);
+ END IF;
+END $$
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=13) THEN
+  CREATE TABLE IF NOT EXISTS privacy_requests (
+    id text PRIMARY KEY,
+    created text NOT NULL,
+    updated text NOT NULL,
+    tenant_id text NOT NULL REFERENCES tenants(id),
+    subject_type text NOT NULL CHECK(subject_type IN ('client','user')),
+    subject_id text NOT NULL,
+    subject_name text NOT NULL,
+    subject_email text NOT NULL DEFAULT '',
+    requester_name text NOT NULL,
+    requester_email text NOT NULL DEFAULT '',
+    request_type text NOT NULL CHECK(request_type IN ('access','export','rectification','erasure','restriction','objection')),
+    status text NOT NULL CHECK(status IN ('received','verified','preparing','ready','delivered','closed','rejected')),
+    due_at text NOT NULL,
+    notes text NOT NULL DEFAULT '',
+    created_by text NOT NULL,
+    export_generated_at text,
+    delivered_at text
+  );
+  CREATE INDEX IF NOT EXISTS privacy_requests_company_idx ON privacy_requests(tenant_id,created DESC);
+  CREATE INDEX IF NOT EXISTS privacy_requests_status_idx ON privacy_requests(status,due_at);
+  INSERT INTO schema_version(version) VALUES(13);
+ END IF;
+END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=14) THEN
+  CREATE TABLE IF NOT EXISTS jobs (
+    tenant_id text NOT NULL REFERENCES tenants(id),
+    id integer NOT NULL,
+    client_id integer NOT NULL,
+    quote_id integer,
+    package_id integer,
+    title text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    status text NOT NULL CHECK(status IN ('draft','planned','active','completed','cancelled')),
+    due_date text,
+    revision integer NOT NULL DEFAULT 1 CHECK(revision>0),
+    created text NOT NULL,
+    updated text NOT NULL,
+    PRIMARY KEY(tenant_id,id),
+    FOREIGN KEY(tenant_id,client_id) REFERENCES clients(tenant_id,id),
+    FOREIGN KEY(tenant_id,quote_id) REFERENCES quotes(tenant_id,id),
+    FOREIGN KEY(tenant_id,package_id) REFERENCES packages(tenant_id,id)
+  );
+  CREATE INDEX IF NOT EXISTS jobs_client_idx ON jobs(tenant_id,client_id,status);
+  CREATE INDEX IF NOT EXISTS jobs_quote_idx ON jobs(tenant_id,quote_id) WHERE quote_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS jobs_quote_active_unique ON jobs(tenant_id,quote_id) WHERE quote_id IS NOT NULL AND status<>'cancelled';
+  CREATE INDEX IF NOT EXISTS jobs_package_idx ON jobs(tenant_id,package_id) WHERE package_id IS NOT NULL;
+
+  ALTER TABLE interventions ALTER COLUMN package_id DROP NOT NULL;
+  ALTER TABLE interventions ADD COLUMN IF NOT EXISTS job_id integer;
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='interventions_job_fk') THEN
+    ALTER TABLE interventions ADD CONSTRAINT interventions_job_fk
+      FOREIGN KEY(tenant_id,job_id) REFERENCES jobs(tenant_id,id);
+  END IF;
+  CREATE INDEX IF NOT EXISTS interventions_job_idx ON interventions(tenant_id,job_id,date) WHERE job_id IS NOT NULL;
+
+  GRANT SELECT,INSERT,UPDATE ON jobs TO luviq_tenant;
+  ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
+  IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='jobs' AND policyname='tenant_isolation') THEN
+    CREATE POLICY tenant_isolation ON jobs TO luviq_tenant
+      USING(tenant_id=current_setting('app.tenant_id',true))
+      WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+  END IF;
+
+  INSERT INTO schema_version(version) VALUES(14);
+ END IF;
+END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=15) THEN
+  ALTER TABLE mail_messages DROP CONSTRAINT IF EXISTS mail_messages_kind_check;
+  ALTER TABLE mail_messages ADD CONSTRAINT mail_messages_kind_check CHECK(kind IN ('quote','response','account','test','platform','invoice','password_reset'));
+
+  CREATE TABLE IF NOT EXISTS password_reset_rate (
+    key text PRIMARY KEY,
+    window_start bigint NOT NULL,
+    count integer NOT NULL CHECK(count>=0)
+  );
+
+  INSERT INTO schema_version(version) VALUES(15);
+ END IF;
+END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=16) THEN
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled boolean NOT NULL DEFAULT false;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret_enc text;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_recovery jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+  CREATE TABLE IF NOT EXISTS mfa_challenges (
+    token_hash text PRIMARY KEY,
+    user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires bigint NOT NULL,
+    failures integer NOT NULL DEFAULT 0 CHECK(failures>=0)
+  );
+  CREATE INDEX IF NOT EXISTS mfa_challenges_user_idx ON mfa_challenges(user_id);
+
+  INSERT INTO schema_version(version) VALUES(16);
+ END IF;
+END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=17) THEN
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at bigint NOT NULL DEFAULT 0;
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_seen_at bigint NOT NULL DEFAULT 0;
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip_address text NOT NULL DEFAULT '';
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_agent text NOT NULL DEFAULT '';
+  INSERT INTO schema_version(version) VALUES(17);
+ END IF;
+END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=18) THEN
+  ALTER TABLE interventions ADD COLUMN IF NOT EXISTS recurrence_series_id text;
+  ALTER TABLE interventions ADD COLUMN IF NOT EXISTS recurrence_index integer NOT NULL DEFAULT 0 CHECK(recurrence_index>=0);
+
+  CREATE TABLE IF NOT EXISTS intervention_assignments (
+    tenant_id text NOT NULL REFERENCES tenants(id),
+    intervention_id integer NOT NULL,
+    user_id text NOT NULL,
+    created text NOT NULL,
+    PRIMARY KEY(tenant_id,intervention_id,user_id),
+    FOREIGN KEY(tenant_id,intervention_id) REFERENCES interventions(tenant_id,id) ON DELETE CASCADE,
+    FOREIGN KEY(tenant_id,user_id) REFERENCES users(tenant_id,id)
+  );
+  CREATE INDEX IF NOT EXISTS intervention_assignments_user_idx
+    ON intervention_assignments(tenant_id,user_id,intervention_id);
+
+  INSERT INTO intervention_assignments(tenant_id,intervention_id,user_id,created)
+  SELECT tenant_id,id,assigned_user_id,coalesce(date,now()::text)
+  FROM interventions
+  WHERE assigned_user_id IS NOT NULL
+  ON CONFLICT DO NOTHING;
+
+  GRANT SELECT,INSERT,DELETE ON intervention_assignments TO luviq_tenant;
+  ALTER TABLE intervention_assignments ENABLE ROW LEVEL SECURITY;
+  IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='intervention_assignments' AND policyname='tenant_isolation') THEN
+    CREATE POLICY tenant_isolation ON intervention_assignments TO luviq_tenant
+      USING(tenant_id=current_setting('app.tenant_id',true))
+      WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+  END IF;
+
+  INSERT INTO schema_version(version) VALUES(18);
+ END IF;
+END $$
+
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=19) THEN
+  CREATE TABLE IF NOT EXISTS intervention_execution (
+    tenant_id text NOT NULL REFERENCES tenants(id),
+    intervention_id integer NOT NULL,
+    timer_started_at text,
+    elapsed_seconds integer NOT NULL DEFAULT 0 CHECK(elapsed_seconds>=0),
+    checklist jsonb NOT NULL DEFAULT '[]'::jsonb,
+    materials jsonb NOT NULL DEFAULT '[]'::jsonb,
+    report_notes text NOT NULL DEFAULT '',
+    signature_name text NOT NULL DEFAULT '',
+    signature_data text NOT NULL DEFAULT '',
+    updated text NOT NULL,
+    PRIMARY KEY(tenant_id,intervention_id),
+    FOREIGN KEY(tenant_id,intervention_id) REFERENCES interventions(tenant_id,id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS intervention_attachments (
+    tenant_id text NOT NULL REFERENCES tenants(id),
+    id text NOT NULL,
+    intervention_id integer NOT NULL,
+    storage_key text NOT NULL,
+    filename text NOT NULL,
+    content_type text NOT NULL,
+    size_bytes integer NOT NULL CHECK(size_bytes>=0),
+    created text NOT NULL,
+    created_by text NOT NULL,
+    PRIMARY KEY(tenant_id,id),
+    FOREIGN KEY(tenant_id,intervention_id) REFERENCES interventions(tenant_id,id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS intervention_attachments_intervention_idx
+    ON intervention_attachments(tenant_id,intervention_id,created);
+
+  GRANT SELECT,INSERT,UPDATE,DELETE ON intervention_execution,intervention_attachments TO luviq_tenant;
+  ALTER TABLE intervention_execution ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE intervention_attachments ENABLE ROW LEVEL SECURITY;
+
+  IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='intervention_execution' AND policyname='tenant_isolation') THEN
+    CREATE POLICY tenant_isolation ON intervention_execution TO luviq_tenant
+      USING(tenant_id=current_setting('app.tenant_id',true))
+      WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+  END IF;
+  IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE tablename='intervention_attachments' AND policyname='tenant_isolation') THEN
+    CREATE POLICY tenant_isolation ON intervention_attachments TO luviq_tenant
+      USING(tenant_id=current_setting('app.tenant_id',true))
+      WITH CHECK(tenant_id=current_setting('app.tenant_id',true));
+  END IF;
+
+  INSERT INTO schema_version(version) VALUES(19);
+ END IF;
+END $$

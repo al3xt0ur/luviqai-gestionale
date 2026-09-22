@@ -1,3 +1,4 @@
+import '../scripts/test-isolation.mjs';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {mkdtempSync,mkdirSync,rmSync} from 'node:fs';
