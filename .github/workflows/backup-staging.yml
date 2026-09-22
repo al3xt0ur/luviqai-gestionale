@@ -11,6 +11,9 @@ on:
       - 'scripts/secure-backup.mjs'
       - 'server/backup-crypto.mjs'
       - 'server/backup.mjs'
+      - 'server/schema.sql'
+      - 'server/schema-operations.sql'
+      - 'server/storage.mjs'
 
 permissions:
   contents: read

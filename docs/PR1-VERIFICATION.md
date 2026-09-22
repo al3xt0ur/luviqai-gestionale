@@ -9,6 +9,25 @@ La migrazione operativa usa **versione 20**, evitando i numeri 8–19 già occup
 Il percorso resta feature branch → PR verso develop → staging → PR develop → main.
 Questa PR resta in bozza fino al collaudo; il suo aggiornamento non distribuisce su Render.
 
+Lo SHA candidato va letto dalla testa corrente della PR e registrato insieme a
+ogni evidenza; non copiarlo da una verifica precedente.
+
+## Perimetro verificabile del titolo
+
+Il titolo storico è più ampio dell'implementazione e della roadmap. Per evitare
+che “completo” venga interpretato come l'intero prodotto Market Ready, questa PR
+è accettabile solo rispetto al seguente perimetro:
+
+| Area | Incluso nella PR | Non dichiarato completo |
+|---|---|---|
+| Flussi operativi | Conversione esplicita preventivo accettato → pacchetto non pagato | Automazione unica preventivo → commessa → fattura → incasso |
+| Calendario | Serie settimanali/bisettimanali, squadre, saldo e conflitti | Migrazione/unificazione delle serie storiche |
+| Avvisi | Quattro avvisi interni aggiornati al caricamento | Scheduler, email e reminder automatici |
+| Cruscotto | Emesso, incassato, minuti approvati, pianificati | Pipeline, DSO, utilizzo, margini e forecast |
+
+Se si vuole mantenere al titolo il significato più ampio della roadmap, questi
+elementi esclusi sono lavoro mancante e la PR non può essere considerata completa.
+
 ## Comportamenti implementati
 
 - Flussi operativi: conversione esplicita di un preventivo accettato in un solo
@@ -108,11 +127,14 @@ verificare e solo dopo cambiare destinazione. Non cancellare tabelle operative.
 ## Evidenze di questa lavorazione
 
 - Build TypeScript/Vite riuscita dopo integrazione di main e develop.
-- Suite locale: 80 test riusciti, 0 falliti (PGlite, dati fittizi).
+- Suite locale: 82 test riusciti, 0 falliti (PGlite, dati fittizi).
 - Prove dedicate: migrazione dalla base schema 19 popolata; riapplicazione;
   backup pre-migrazione; restore di relazioni, serie e avvisi; RLS; concorrenza;
   DST; KPI; avvio esterno senza DDL.
-- Test browser aggiunto alla CI Linux ed eseguito con successo nel workflow
-  GitHub Actions n. 191, insieme alle verifiche Linux e Windows.
+- Test browser aggiunto alla CI Linux. Per il candidato corrente devono risultare
+  verdi sia il collaudo browser sia le verifiche Linux e Windows mostrate nella PR;
+  non usare il numero di un workflow precedente come evidenza.
+- Riletti e confrontati con il candidato tutti i documenti Markdown del repository;
+  le descrizioni storiche sono state riallineate senza dichiarare eseguito lo staging.
 - Collaudo su PostgreSQL remoto e staging: non eseguito in questa lavorazione.
   Nessun merge, deploy o modifica al database di produzione effettuato.

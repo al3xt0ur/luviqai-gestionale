@@ -1,6 +1,11 @@
-# Aggiornamento PR #1
+# Stato corrente — 22 settembre 2026
 
-Ramo riallineato a main `c45d70e` e develop `dcc757b`; schema operativo 20. Procedura corrente: [PR1-VERIFICATION.md](PR1-VERIFICATION.md). Avvio PostgreSQL senza migrazioni automatiche; migrazione amministrativa esplicita prima del deploy. PR destinata a develop, ancora in bozza.
+Produzione su `main` (`c45d70e` al momento dell'integrazione), integrazione su
+`develop` (`dcc757b`) e candidato PR #1 `4146e072` sul ramo
+`codex/operational-workflows`. Il candidato richiede schema operativo 20 ed è
+ancora in bozza. Procedura corrente: [PR1-VERIFICATION.md](PR1-VERIFICATION.md).
+L'avvio PostgreSQL non esegue migrazioni automatiche: backup verificato e
+migrazione amministrativa devono precedere il deploy del candidato.
 
 # Riprendere lo sviluppo
 
@@ -8,7 +13,12 @@ Ramo riallineato a main `c45d70e` e develop `dcc757b`; schema operativo 20. Proc
 
 Produzione online su Render (`app.luviqai.it`), PostgreSQL Supabase e invio email Resend. Base analizzata: `846b55b`, schema 13, inclusi monitoraggio e privacy. Le sezioni datate sotto descrivono consegne precedenti.
 
-Prima fase staging sul ramo `codex/isolated-ci`: workflow Linux/Windows e isolamento automatico dei test, documentati in `docs/STAGING.md`. Non configurare il flag di test su Render. Non unire su main senza considerare il deploy automatico. Il sottodominio OVH di test e il database staging non sono ancora creati. Per questa fase nessuna migrazione o connessione al database operativo.
+La prima fase staging sul ramo `codex/isolated-ci` ha introdotto workflow
+Linux/Windows e isolamento automatico dei test. Il repository oggi documenta
+`https://staging.luviqai.it` e un database staging separato, ma branch Render,
+variabili e identità effettiva del database devono essere ricontrollati prima
+di ogni migrazione. Non configurare il flag di test su Render e non usare mai
+il database operativo per il collaudo.
 
 ## Riferimenti correnti — 17 settembre 2026
 
@@ -55,14 +65,18 @@ Per trasferire anche i dati, usare un backup logico e la procedura del README su
 - Email con PDF e pagina di risposta cliente, accettazione/rifiuto, note e notifiche. Modalità predefinita di anteprima; SMTP predisposto, nessun invio reale necessario ai test.
 - Trattativa: «Rivedi proposta» su un preventivo rifiutato prepara una nuova bozza numerata e collegata al precedente; rifiuto e storico originali restano consultabili.
 - Fatture interne: bozze, emissione, annullamento, pagamento, scadenze, PDF e collegamento a preventivo accettato; incluse nei backup. Non è implementato l'invio elettronico tramite SDI.
-- Da realizzare: fatturazione elettronica, conversione automatica in pacchetti/interventi, assistente AI, account clienti, abbonamenti e hosting dell'app.
+- Il candidato PR #1 aggiunge conversione esplicita in pacchetto, serie operative,
+  avvisi interni e KPI base. Non automatizza l'intero percorso preventivo →
+  commessa → intervento → fattura → incasso.
+- Da realizzare: fatturazione elettronica, account clienti, abbonamenti,
+  automazioni email degli avvisi e analytics avanzati.
 
 ## Codice e vincoli da mantenere
 
 - `src/`: React e TypeScript; `server/http.mjs`: API e sessioni; `server/domain.mjs`: operazioni aziendali.
 - `server/storage.mjs` e `server/schema.sql`: PostgreSQL/PGlite, transazioni, migrazioni e isolamento RLS.
 - `server/quotes.mjs`, `server/quote-pdf.mjs`, `src/quotes.tsx`: preventivi e PDF. Conservare il layout di stampa approvato.
-- `server/domain.mjs`, `server/invoice-pdf.mjs`, `src/invoices.tsx`: gestione fatture e relativo PDF; schema versione 7.
+- `server/domain.mjs`, `server/invoice-pdf.mjs`, `src/invoices.tsx`: gestione fatture e relativo PDF. La base integrata arriva a schema 19; il candidato PR #1 aggiunge la versione 20.
 - `server/mail.mjs` e `src/mail.tsx`: coda email, token e risposte. Visitare un link non deve mai accettare o rifiutare un preventivo: serve l'invio esplicito del modulo. Non riprovare automaticamente invii SMTP dall'esito incerto.
 - `tests/*.test.mjs`: test isolati. `tests/browser-*.mjs`: percorsi Chrome/Playwright; README descrive il percorso opzionale del modulo.
 

@@ -2,11 +2,18 @@
 
 Per le modifiche in questo ramo, migrazione esplicita a schema 20 e collaudo, vedere [PR #1 — verifica operativa](docs/PR1-VERIFICATION.md). Le sezioni storiche sotto non sostituiscono questa procedura.
 
+Stato al 22 settembre 2026:
+
+- produzione: `main` su Render, `https://app.luviqai.it`, database Supabase operativo e invio Resend;
+- integrazione/staging: `develop` e servizio separato da verificare prima di ogni distribuzione;
+- candidato PR #1: ramo `codex/operational-workflows`, non ancora distribuito, con schema richiesto 20;
+- una funzione presente nel candidato non va considerata disponibile in produzione finché non supera staging e la successiva promozione `develop` → `main`.
+
 # luviqAI · Gestionale servizi
 
 Per il nuovo percorso di sviluppo con test isolati, controlli GitHub e staging consultare [Staging e controlli automatici](docs/STAGING.md). `npm.cmd test` isola automaticamente la configurazione operativa.
 
-Prima consegna della versione rivendibile a più imprese. My Clean è la prima azienda configurata. React + TypeScript, backend Node.js, PostgreSQL. Il codice è condiviso su GitHub e il database operativo è PostgreSQL su Supabase. L’applicazione viene avviata localmente; non è stato attivato un incasso automatico.
+Versione multi-impresa del gestionale LuviqAI. My Clean è la prima azienda configurata. React + TypeScript, backend Node.js e PostgreSQL. Il codice è condiviso su GitHub, la produzione è pubblicata su Render e il database operativo è PostgreSQL su Supabase. Non è stato attivato un incasso automatico.
 
 ## Avvio su Windows
 
@@ -96,7 +103,7 @@ Gli importi sono salvati in centesimi interi, le quantità in centesimi di unit�
 
 ## Database e migrazione
 
-Per logo aziendale, email con PDF, risposta cliente e configurazione Gmail consultare [Email e notifiche](docs/EMAIL.md). La modalità corrente è simulazione locale, senza invii reali. Il layout del PDF rivisto con Sol è stato mantenuto.
+Per logo aziendale, email con PDF, risposta cliente e configurazione del provider consultare [Email e notifiche](docs/EMAIL.md). Locale e staging devono usare la modalità `preview`; la produzione usa Resend con credenziali riservate. Il layout del PDF rivisto con Sol è stato mantenuto.
 
 - Database corrente: **Supabase**, progetto `yxothpsgfddmcqawgzhx`. Credenziali esclusivamente nella configurazione riservata.
 - Database locale precedente: **`data/postgres/`**, conservato come copia storica; non sincronizzato automaticamente con Supabase.
@@ -112,7 +119,7 @@ Le operazioni aziendali usano un ruolo PostgreSQL senza privilegi di proprietari
 
 ## Backup e ripristino
 
-Il server crea un backup logico all’avvio e ogni 24 ore **mentre rimane acceso**, in `data/backups/`. La scrittura è atomica; il contenuto ha un checksum di integrità. I backup includono tutte le imprese, hash delle password, storico e chiavi idempotenti. Non includono sessioni attive o link di recupero. Il checksum rileva alterazioni accidentali, non costituisce una firma contro manomissioni intenzionali.
+Con `BOOTSTRAP_DEMO` attivo, l'istanza locale crea un backup logico all’avvio e ogni 24 ore **mentre rimane accesa**, in `data/backups/`. Staging e produzione usano invece i workflow cifrati documentati in [Disaster recovery](docs/disaster-recovery.md). La scrittura è atomica; il contenuto ha un checksum di integrità. I backup includono tutte le imprese, hash delle password, storico e chiavi idempotenti. Non includono sessioni attive o link di recupero. Il checksum rileva alterazioni accidentali, non costituisce una firma contro manomissioni intenzionali.
 
 I file non vengono cancellati automaticamente. Controllare lo spazio e copiare periodicamente i backup su un supporto separato: una copia sullo stesso computer non protegge dalla perdita del dispositivo. Questi file sono riservati e non sono scaricabili dalle API delle imprese.
 
@@ -145,9 +152,9 @@ node scripts/accounts.mjs reset
 
 `create` chiede codice azienda, email e nome; scrive una password casuale in `data/nuovo-account.txt`. `reset` chiede codice azienda ed email e scrive un link monouso valido 30 minuti in `data/recupero-accesso.txt`. Riavviare il server e aprire il link. Nessuna email viene inviata. Comunicare password e link solo al destinatario; il collegamento recupero revoca tutte le vecchie sessioni quando viene utilizzato.
 
-## Preparazione per hosting
+## Hosting
 
-Non è avvenuta alcuna pubblicazione. Le impostazioni già previste sono:
+La produzione è pubblicata su Render. Le impostazioni richieste per ogni ambiente sono:
 
 - `DATABASE_URL`: connessione PostgreSQL con credenziali conservate nell’ambiente, mai nei sorgenti. Il collegamento per la migrazione deve poter creare tabelle e il ruolo `luviq_tenant`.
 - `APP_ORIGIN`: URL pubblico esatto. In produzione deve essere HTTPS.
@@ -155,7 +162,7 @@ Non è avvenuta alcuna pubblicazione. Le impostazioni già previste sono:
 - `PORT`: porta del backend. In locale il server ascolta solo su 127.0.0.1; in produzione su 0.0.0.0 dietro HTTPS/reverse proxy.
 - `BOOTSTRAP_DEMO=0`: disattiva inizializzazione demo e backup periodici incorporati, utile per test o gestione backup esterna.
 
-Prima di pubblicare restano la scelta dell’hosting, verifica TLS della connessione database, configurazione proxy/monitoraggio, backup su supporto esterno e revisione di sicurezza. Il recupero email self-service e MFA non sono implementati. Il limite dei tentativi IP usa l’indirizzo della connessione diretta: dietro un proxy va configurato un limite al perimetro prima dell’uso pubblico.
+Recupero password self-service, MFA, sessioni e monitoraggio sono implementati nella base corrente. Prima di ogni release restano obbligatori verifica TLS/database, proxy e rate limit, backup esterno con restore provato e revisione di sicurezza. Il candidato PR #1 non migra automaticamente PostgreSQL: lo schema 20 deve essere applicato esplicitamente prima dell’avvio della nuova versione.
 
 ## Test
 
@@ -173,6 +180,7 @@ node tests/browser.mjs
 node tests/browser-accounts.mjs
 node tests/browser-platform.mjs
 node tests/browser-quotes.mjs
+node tests/browser-operations.mjs
 ```
 
 È possibile passare come primo argomento il percorso del modulo `playwright/index.mjs`. Le prove browser usano la porta 3138 e database temporanei; le schermate e il PDF dimostrativo vengono salvati in `test-results/`, esclusa da Git.
@@ -181,4 +189,4 @@ node tests/browser-quotes.mjs
 
 È disponibile una prima versione di **Assistente AI**: consultazioni rapide, ricerca clienti e preparazione di bozze di preventivo con conferma. Il testo libero richiede una chiave OpenRouter privata; configurazione, limiti e trattamento dei dati sono descritti in [Assistente AI](docs/AI.md). Non esegue invii, pagamenti o approvazioni automatiche.
 
-Fatturazione elettronica, conversione automatica dei preventivi accettati in pacchetti, assistente AI operativo, account clienti e abbonamenti luviqAI non sono ancora implementati. Questa consegna prepara la base per più imprese e consolida i pacchetti ore. Il nome commerciale definitivo è ancora da scegliere; per ora è usato “luviqAI · Gestionale servizi”. La documentazione della prima demo è conservata in `docs/DEMO_V1.md` solo come riferimento storico.
+Fatturazione elettronica, account clienti, abbonamenti LuviqAI e automazioni email degli avvisi non sono ancora implementati. Il candidato PR #1 aggiunge una conversione **esplicita** del preventivo accettato in pacchetto; non sostituisce la creazione separata della commessa e non crea automaticamente fatture o incassi. L’assistente AI iniziale propone consultazioni e bozze con conferma umana, ma non è un agente operativo autonomo. La documentazione della prima demo è conservata in `docs/DEMO_V1.md` solo come riferimento storico.

@@ -1,6 +1,11 @@
 name: Uptime staging
 on:
   workflow_dispatch:
+    inputs:
+      expected_release:
+        description: SHA Git che deve risultare distribuito (opzionale)
+        required: false
+        type: string
   schedule:
     - cron: '*/30 * * * *'
   push:
@@ -31,6 +36,7 @@ jobs:
         continue-on-error: true
         env:
           HEALTHCHECK_URL: https://staging.luviqai.it/api/health
+          EXPECTED_RELEASE: ${{ inputs.expected_release }}
         run: node scripts/check-health.mjs "$HEALTHCHECK_URL"
       - name: Invia alert email
         if: steps.health.outcome == 'failure'
