@@ -19,3 +19,11 @@
 .check-row{display:flex;align-items:center;gap:10px;margin:8px 0}
 .check-row .done{text-decoration:line-through;opacity:.65}
 .check-row>span{flex:1}
+
+
+.attachment-list{display:grid;gap:8px;margin:10px 0 14px}
+.attachment-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 12px;border:1px solid #dce6e3;border-radius:10px;background:#fff}
+.attachment-row>div:first-child{min-width:0;display:grid;gap:3px}
+.attachment-row strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attachment-row small{color:#66787b}
+@media(max-width:700px){.attachment-row{align-items:flex-start;flex-direction:column}.attachment-row .actions{width:100%}}
