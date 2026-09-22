@@ -73,8 +73,10 @@ ripristinate. Le email pendenti vengono marcate incerte, senza invio automatico.
 7. Configurare il passaggio amministrativo di migrazione PRIMA dell'avvio
    della nuova versione, poi distribuire lo SHA candidato. Non fare merge
    in develop con auto-deploy attivo senza aver predisposto questo passaggio.
-8. Eseguire le prove sotto e registrare gli esiti. Un health 200 non certifica
-   né lo SHA distribuito né la correttezza funzionale.
+8. Verificare che `/api/health` risponda 200 e che `release` coincida con lo SHA
+   candidato completo. Un valore `unknown` o diverso blocca il collaudo.
+9. Eseguire le prove sotto e registrare gli esiti. Un health 200 certifica la
+   raggiungibilità, non la correttezza funzionale.
 
 ## Matrice di accettazione staging
 
@@ -110,7 +112,7 @@ verificare e solo dopo cambiare destinazione. Non cancellare tabelle operative.
 - Prove dedicate: migrazione dalla base schema 19 popolata; riapplicazione;
   backup pre-migrazione; restore di relazioni, serie e avvisi; RLS; concorrenza;
   DST; KPI; avvio esterno senza DDL.
-- Test browser aggiunto alla CI Linux. Download Chromium locale fallito:
-  nessun esito browser locale dichiarato.
+- Test browser aggiunto alla CI Linux ed eseguito con successo nel workflow
+  GitHub Actions n. 191, insieme alle verifiche Linux e Windows.
 - Collaudo su PostgreSQL remoto e staging: non eseguito in questa lavorazione.
   Nessun merge, deploy o modifica al database di produzione effettuato.

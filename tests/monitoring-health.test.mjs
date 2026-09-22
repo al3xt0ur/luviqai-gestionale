@@ -7,12 +7,21 @@ import {publicHealth} from '../server/monitoring.mjs';
 test('health pubblico: ok con database raggiungibile e nessun picco 5xx',async()=>{
   const db=await connectStore();await migrate(db);
   try{
-    const health=await publicHealth(db,{errorThreshold:2,windowMinutes:15});
+    const health=await publicHealth(db,{errorThreshold:2,windowMinutes:15,release:'6C5B5F577E6EF3F884286AF70D2F738828659DBA'});
     assert.equal(health.ok,true);
     assert.equal(health.status,'ok');
     assert.equal(health.checks.database,'ok');
     assert.equal(health.checks.recentErrors,'ok');
+    assert.equal(health.release,'6c5b5f577e6ef3f884286af70d2f738828659dba');
     assert.equal('recentServerErrors' in health,false);
+  }finally{await db.close();}
+});
+
+test('health pubblico: non espone un identificativo release non valido',async()=>{
+  const db=await connectStore();await migrate(db);
+  try{
+    const health=await publicHealth(db,{release:'valore non sicuro'});
+    assert.equal(health.release,'unknown');
   }finally{await db.close();}
 });
 

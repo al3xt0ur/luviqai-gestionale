@@ -24,6 +24,7 @@ const production=process.env.NODE_ENV==='production';
 const trustProxy=production;
 const port=Number(process.env.PORT||3000);
 const origin=process.env.APP_ORIGIN||`http://localhost:${port}`;
+const release=process.env.RENDER_GIT_COMMIT||process.env.GIT_COMMIT||process.env.SOURCE_VERSION||'unknown';
 if(production&&(!process.env.DATABASE_URL||!origin.startsWith('https://')))throw Error('In produzione sono obbligatori DATABASE_URL e APP_ORIGIN HTTPS.');
 const dataDir=resolve(root,'data');
 const store=await connectStore({url:process.env.DATABASE_URL,path:process.env.PGLITE_PATH||resolve(dataDir,'postgres')});
@@ -53,7 +54,7 @@ const server=createServer(async(req,res)=>{
   try {
     if(!allowedHosts.has(req.headers.host))return send(403,{error:'Host non consentito.'});
     const url=new URL(req.url,origin);requestPath=url.pathname;
-    if(req.method==='GET'&&url.pathname==='/api/health'){const health=await publicHealth(store);return send(health.ok?200:503,health);}
+    if(req.method==='GET'&&url.pathname==='/api/health'){const health=await publicHealth(store,{release});return send(health.ok?200:503,health);}
     let input;
     if(req.method==='POST') {
       if(req.headers.origin&&!allowedOrigins.has(req.headers.origin))fail('Origine non consentita.',403);

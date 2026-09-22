@@ -2,7 +2,7 @@
 
 ## Health check
 
-L'endpoint pubblico `/api/health` verifica che il processo risponda, che il database sia raggiungibile e che non ci sia un picco di errori HTTP 5xx recenti. Non espone stack trace, conteggi interni o credenziali.
+L'endpoint pubblico `/api/health` verifica che il processo risponda, che il database sia raggiungibile e che non ci sia un picco di errori HTTP 5xx recenti. Il campo `release` espone lo SHA Git validato fornito dall'ambiente di deploy (`RENDER_GIT_COMMIT`, con fallback `GIT_COMMIT`/`SOURCE_VERSION`), oppure `unknown`. Non espone stack trace, conteggi interni o credenziali.
 
 ## Controllo esterno
 
