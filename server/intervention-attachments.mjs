@@ -28,7 +28,8 @@ export async function createAttachment(store,actor,input,fetchImpl=fetch){
   try{
     return await tenantTransaction(store,actor.tenantId,async tx=>{
       await assertAccess(tx,actor,interventionId);
-      return await one(tx,'INSERT INTO intervention_attachments (tenant_id,id,intervention_id,storage_key,filename,content_type,size_bytes,created,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,intervention_id,filename,content_type,size_bytes,created,created_by',[actor.tenantId,id,interventionId,key,meta.filename,meta.contentType,meta.sizeBytes,new Date().toISOString(),actor.id]);
+      const row=await one(tx,'INSERT INTO intervention_attachments (tenant_id,id,intervention_id,storage_key,filename,content_type,size_bytes,created,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,intervention_id,filename,content_type,size_bytes,created,created_by',[actor.tenantId,id,interventionId,key,meta.filename,meta.contentType,meta.sizeBytes,new Date().toISOString(),actor.id]);
+      return {id:row.id,interventionId:row.intervention_id,filename:row.filename,contentType:row.content_type,sizeBytes:row.size_bytes,created:row.created,createdBy:row.created_by};
     });
   }catch(error){
     try{await deletePrivateObject(config,key,fetchImpl);}catch{}
