@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { connectStore, migrate } from './storage.mjs';
+import { connectStore, migrate, one, tenantTransaction } from './storage.mjs';
 import { snapshot, mutate, fail } from './domain.mjs';
 import { authenticate, login, verifyMfaLogin, mfaStatus, beginMfaSetup, enableMfa, disableMfa, activeSessions, revokeSession, revokeOtherSessions, team, manageUser, changePassword, resetPassword, requestPasswordReset } from './auth.mjs';
 import { bootstrapLocal } from './bootstrap.mjs';
@@ -16,6 +16,7 @@ import {createAssistant} from './ai.mjs';
 import {recordTechnicalLog,platformMonitoring,publicHealth} from './monitoring.mjs';
 import {privacyState,privacySubjects,createPrivacyRequest,updatePrivacyRequest,privacyExport} from './privacy.mjs';
 import {clientIp} from './request-ip.mjs';
+import {storageConfig,uploadObject,downloadObject,deleteObject,attachmentRules} from './object-storage.mjs';
 const assistant=createAssistant();
 
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -28,6 +29,7 @@ const dataDir=resolve(root,'data');
 const store=await connectStore({url:process.env.DATABASE_URL,path:process.env.PGLITE_PATH||resolve(dataDir,'postgres')});
 await migrate(store);
 const mailSettings=mailConfig(process.env,origin);
+const attachmentStorage=storageConfig(process.env);
 let mailWorking=false;
 async function mailTick(){if(mailWorking)return;mailWorking=true;try{await store.query("UPDATE mail_messages SET status='uncertain',error='Invio interrotto: verificare la casella del mittente.' WHERE status='sending' AND updated<$1",[new Date(Date.now()-120000).toISOString()]);for(let n=0;n<5&&await dispatchOne(store,mailSettings);n++);}catch(error){console.error('Elaborazione email non riuscita:',error.code||error.name);}finally{mailWorking=false;}}
 const mailTimer=setInterval(()=>void mailTick(),2000);mailTimer.unref();
@@ -54,14 +56,17 @@ const server=createServer(async(req,res)=>{
     const url=new URL(req.url,origin);requestPath=url.pathname;
     if(req.method==='GET'&&url.pathname==='/api/health'){const health=await publicHealth(store);return send(health.ok?200:503,health);}
     let input;
+    const attachmentUploadMatch=req.method==='POST'&&url.pathname.match(/^\/api\/interventions\/(\d+)\/attachments$/);
     if(req.method==='POST') {
       if(req.headers.origin&&!allowedOrigins.has(req.headers.origin))fail('Origine non consentita.',403);
       if(req.headers['sec-fetch-site']==='cross-site')fail('Origine non consentita.',403);
-      if(!req.headers['content-type']?.startsWith('application/json'))fail('Formato richiesta non valido.',415);
-      let body='';
-      for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>(url.pathname==='/api/company'?800000:100000))fail('Richiesta troppo grande.',413);}
-      try {input=JSON.parse(body);}catch{fail('Richiesta non valida.');}
-      if(!input||Array.isArray(input)||typeof input!=='object')fail('Richiesta non valida.');
+      if(!attachmentUploadMatch){
+        if(!req.headers['content-type']?.startsWith('application/json'))fail('Formato richiesta non valido.',415);
+        let body='';
+        for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>(url.pathname==='/api/company'?800000:100000))fail('Richiesta troppo grande.',413);}
+        try {input=JSON.parse(body);}catch{fail('Richiesta non valida.');}
+        if(!input||Array.isArray(input)||typeof input!=='object')fail('Richiesta non valida.');
+      }
     }
     if(req.method==='POST'&&url.pathname==='/api/request-password-reset') {
       const reset=await requestPasswordReset(store,input,clientIp(req,{trustProxy}));
@@ -134,6 +139,47 @@ const server=createServer(async(req,res)=>{
       if(actor.role==='platform_admin') {
         const context=req.headers['x-tenant-context']||url.searchParams.get('company');
         if(actor.tenantId===actor.homeTenantId||context!==actor.tenantId)fail('Seleziona l’azienda dal pannello amministrativo. Se hai cambiato azienda in un’altra scheda, ricarica questa pagina.',409);
+      }
+      if(req.method==='GET'&&url.pathname==='/api/storage/status')return send(200,{configured:attachmentStorage.configured,maxBytes:attachmentRules.maxBytes,allowed:attachmentRules.allowed});
+      if(attachmentUploadMatch){
+        if(req.headers['x-csrf-token']!==actor.csrf)fail('Sessione non valida. Ricarica la pagina.',403);
+        if(!attachmentStorage.configured)fail('Archivio allegati non configurato.',503);
+        const interventionId=Number(attachmentUploadMatch[1]);
+        const state=await snapshot(store,actor),intervention=state.interventions.find(i=>i.id===interventionId);
+        if(!intervention)fail('Intervento non trovato.',404);
+        const filename=String(req.headers['x-file-name']||'file');
+        const contentType=String(req.headers['content-type']||'application/octet-stream').split(';')[0].trim().toLowerCase();
+        const chunks=[];let size=0;
+        for await(const chunk of req){size+=chunk.length;if(size>attachmentRules.maxBytes)fail('Il file supera il limite di 8 MB.',413);chunks.push(chunk);}
+        const uploaded=await uploadObject(attachmentStorage,{tenantId:actor.tenantId,interventionId,filename,contentType,buffer:Buffer.concat(chunks)});
+        try{
+          await tenantTransaction(store,actor.tenantId,tx=>tx.query(
+            'INSERT INTO intervention_attachments(tenant_id,id,intervention_id,storage_key,filename,content_type,size_bytes,created,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+            [actor.tenantId,uploaded.id,interventionId,uploaded.storageKey,uploaded.filename,uploaded.contentType,uploaded.sizeBytes,new Date().toISOString(),actor.id]
+          ));
+        }catch(error){await deleteObject(attachmentStorage,uploaded.storageKey).catch(()=>{});throw error;}
+        return send(200,{ok:true,attachment:{id:uploaded.id,interventionId,filename:uploaded.filename,contentType:uploaded.contentType,sizeBytes:uploaded.sizeBytes}});
+      }
+      const attachmentMatch=url.pathname.match(/^\/api\/interventions\/(\d+)\/attachments\/([a-f0-9-]{36})(\/delete)?$/);
+      if(attachmentMatch){
+        const interventionId=Number(attachmentMatch[1]),attachmentId=attachmentMatch[2];
+        const state=await snapshot(store,actor),intervention=state.interventions.find(i=>i.id===interventionId);
+        if(!intervention)fail('Intervento non trovato.',404);
+        const meta=await tenantTransaction(store,actor.tenantId,tx=>one(tx,'SELECT * FROM intervention_attachments WHERE tenant_id=$1 AND intervention_id=$2 AND id=$3',[actor.tenantId,interventionId,attachmentId]));
+        if(!meta)fail('Allegato non trovato.',404);
+        if(req.method==='GET'&&!attachmentMatch[3]){
+          const file=await downloadObject(attachmentStorage,meta.storage_key);
+          const safe=String(meta.filename||'file').replace(/[\r\n"]/g,'_');
+          res.writeHead(200,{'Content-Type':meta.content_type||file.contentType,'Content-Disposition':`attachment; filename="${safe}"`,'Cache-Control':'private, no-store','Content-Length':file.buffer.length});
+          return res.end(file.buffer);
+        }
+        if(req.method==='POST'&&attachmentMatch[3]){
+          if(actor.role==='operator'&&meta.created_by!==actor.id)fail('Puoi eliminare solo allegati caricati dal tuo account.',403);
+          await deleteObject(attachmentStorage,meta.storage_key);
+          await tenantTransaction(store,actor.tenantId,tx=>tx.query('DELETE FROM intervention_attachments WHERE tenant_id=$1 AND intervention_id=$2 AND id=$3',[actor.tenantId,interventionId,attachmentId]));
+          return send(200,{ok:true});
+        }
+        fail('Operazione allegato non consentita.',405);
       }
       if(req.method==='GET'&&url.pathname==='/api/ai/status')return send(200,assistant.status(actor));
       if(req.method==='POST'&&url.pathname==='/api/ai/chat')return send(200,await assistant.ask(store,actor,input));
