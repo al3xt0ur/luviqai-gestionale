@@ -16,7 +16,7 @@ import {createAssistant} from './ai.mjs';
 import {recordTechnicalLog,platformMonitoring,publicHealth} from './monitoring.mjs';
 import {privacyState,privacySubjects,createPrivacyRequest,updatePrivacyRequest,privacyExport} from './privacy.mjs';
 import {clientIp} from './request-ip.mjs';
-import {storageConfig,uploadObject,downloadObject,deleteObject,attachmentRules} from './object-storage.mjs';
+import {storageConfig,checkBucket,uploadObject,downloadObject,deleteObject,attachmentRules} from './object-storage.mjs';
 const assistant=createAssistant();
 
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -140,7 +140,7 @@ const server=createServer(async(req,res)=>{
         const context=req.headers['x-tenant-context']||url.searchParams.get('company');
         if(actor.tenantId===actor.homeTenantId||context!==actor.tenantId)fail('Seleziona l’azienda dal pannello amministrativo. Se hai cambiato azienda in un’altra scheda, ricarica questa pagina.',409);
       }
-      if(req.method==='GET'&&url.pathname==='/api/storage/status')return send(200,{configured:attachmentStorage.configured,maxBytes:attachmentRules.maxBytes,allowed:attachmentRules.allowed});
+      if(req.method==='GET'&&url.pathname==='/api/storage/status')return send(200,{...(await checkBucket(attachmentStorage)),maxBytes:attachmentRules.maxBytes,allowed:attachmentRules.allowed});
       if(attachmentUploadMatch){
         if(req.headers['x-csrf-token']!==actor.csrf)fail('Sessione non valida. Ricarica la pagina.',403);
         if(!attachmentStorage.configured)fail('Archivio allegati non configurato.',503);
