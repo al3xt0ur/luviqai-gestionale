@@ -4,7 +4,8 @@ import {post,Session} from './access';
 type ChecklistItem={id:string;text:string;done:boolean};
 type MaterialItem={id:string;text:string};
 type Execution={timerStartedAt?:string|null;elapsedSeconds?:number;checklist?:ChecklistItem[];materials?:MaterialItem[];reportNotes?:string;signatureName?:string;signatureData?:string};
-type Intervention={id:number;service:string;date:string;status:string;execution?:Execution|null;attachments?:any[]};
+type Attachment={id:string;interventionId:number;filename:string;contentType:string;sizeBytes:number;created?:string;createdBy?:string};
+type Intervention={id:number;service:string;date:string;status:string;execution?:Execution|null;attachments?:Attachment[]};
 
 const durationLabel=(seconds:number)=>{
   const h=Math.floor(seconds/3600),m=Math.floor((seconds%3600)/60),s=seconds%60;
@@ -20,6 +21,7 @@ export function InterventionExecution({item,session,onClose,onSaved}:{item:Inter
   const [signatureData,setSignatureData]=useState(initial.signatureData||'');
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[now,setNow]=useState(Date.now());
   const [newCheck,setNewCheck]=useState(''),[newMaterial,setNewMaterial]=useState('');
+  const [attachments,setAttachments]=useState<Attachment[]>(item.attachments||[]),[storageReady,setStorageReady]=useState<boolean|null>(null),[uploading,setUploading]=useState(false);
   const canvas=useRef<HTMLCanvasElement|null>(null),drawing=useRef(false);
   const liveSeconds=useMemo(()=>{
     const base=Number(initial.elapsedSeconds||0);
@@ -27,6 +29,7 @@ export function InterventionExecution({item,session,onClose,onSaved}:{item:Inter
   },[initial.elapsedSeconds,initial.timerStartedAt,now]);
 
   useEffect(()=>{if(!initial.timerStartedAt)return;const id=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[initial.timerStartedAt]);
+  useEffect(()=>{fetch('/api/storage/status',{headers:{'X-Tenant-Context':session.user.tenantId}}).then(async r=>r.ok?r.json():Promise.reject()).then(v=>setStorageReady(!!v.configured)).catch(()=>setStorageReady(false));},[session.user.tenantId]);
   useEffect(()=>{
     const c=canvas.current;if(!c)return;
     const ctx=c.getContext('2d');if(!ctx)return;
@@ -53,6 +56,43 @@ export function InterventionExecution({item,session,onClose,onSaved}:{item:Inter
   }
   function addChecklist(){const text=newCheck.trim();if(!text)return;setChecklist(v=>[...v,{id:crypto.randomUUID(),text,done:false}]);setNewCheck('')}
   function addMaterial(){const text=newMaterial.trim();if(!text)return;setMaterials(v=>[...v,{id:crypto.randomUUID(),text}]);setNewMaterial('')}
+  async function uploadFiles(files:FileList|null){
+    if(!files?.length)return;setUploading(true);setError('');
+    try{
+      for(const file of Array.from(files)){
+        const res=await fetch('/api/interventions/'+item.id+'/attachments',{
+          method:'POST',
+          headers:{
+            'Content-Type':file.type||'application/octet-stream',
+            'X-File-Name':encodeURIComponent(file.name),
+            'X-CSRF-Token':session.csrf,
+            'X-Tenant-Context':session.user.tenantId
+          },
+          body:file
+        });
+        const result=await res.json();
+        if(!res.ok)throw Error(result.error||'Caricamento non riuscito.');
+        setAttachments(v=>[...v,result.attachment]);
+      }
+      await onSaved();
+    }catch(e:any){setError(e.message)}finally{setUploading(false)}
+  }
+  async function removeAttachment(file:Attachment){
+    if(!confirm('Eliminare definitivamente '+file.filename+'?'))return;
+    setUploading(true);setError('');
+    try{
+      const res=await fetch('/api/interventions/'+item.id+'/attachments/'+file.id+'/delete',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf,'X-Tenant-Context':session.user.tenantId},
+        body:'{}'
+      });
+      const result=await res.json();
+      if(!res.ok)throw Error(result.error||'Eliminazione non riuscita.');
+      setAttachments(v=>v.filter(x=>x.id!==file.id));await onSaved();
+    }catch(e:any){setError(e.message)}finally{setUploading(false)}
+  }
+  const attachmentUrl=(file:Attachment,inline=false)=>'/api/interventions/'+item.id+'/attachments/'+file.id+'?company='+encodeURIComponent(session.user.tenantId)+(inline?'&inline=1':'');
+  const formatBytes=(n:number)=>n<1024?n+' B':n<1024*1024?(n/1024).toLocaleString('it-IT',{maximumFractionDigits:1})+' KB':(n/1024/1024).toLocaleString('it-IT',{maximumFractionDigits:1})+' MB';
 
   return <div className="overlay" onClick={e=>{if(e.target===e.currentTarget&&!busy)onClose()}}>
     <section role="dialog" aria-modal="true" className="modal execution-modal">
@@ -75,6 +115,19 @@ export function InterventionExecution({item,session,onClose,onSaved}:{item:Inter
         <h3>Materiali utilizzati</h3>
         {materials.map((x,index)=><div className="check-row" key={x.id}><span>• {x.text}</span><button className="text danger" onClick={()=>setMaterials(v=>v.filter((_,i)=>i!==index))}>Rimuovi</button></div>)}
         <div className="form-grid"><input value={newMaterial} onChange={e=>setNewMaterial(e.target.value)} maxLength={300} placeholder="Es. Filtro HEPA × 2"/><button type="button" className="secondary" onClick={addMaterial}>＋ Materiale</button></div>
+      </section>
+
+      <section className="settings-card">
+        <div className="row"><div><h3>Foto e allegati</h3><p>Archivio privato collegato a questo intervento.</p></div>{storageReady===false&&<span className="badge pending">Storage da configurare</span>}</div>
+        {attachments.length?<div className="attachment-grid">{attachments.map(file=><article className="attachment-card" key={file.id}>
+          {file.contentType.startsWith('image/')?<a href={attachmentUrl(file,true)} target="_blank" rel="noreferrer"><img src={attachmentUrl(file,true)} alt={file.filename}/></a>:<div className="attachment-file-icon">▧</div>}
+          <div><strong>{file.filename}</strong><small>{file.contentType} · {formatBytes(file.sizeBytes)}</small></div>
+          <div className="actions"><a className="button secondary" href={attachmentUrl(file)} target="_blank" rel="noreferrer">Apri</a><button type="button" className="text danger" disabled={uploading} onClick={()=>void removeAttachment(file)}>Elimina</button></div>
+        </article>)}</div>:<p className="help">Nessun allegato caricato.</p>}
+        <label className="attachment-upload">Aggiungi foto o documenti
+          <input type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,.docx" disabled={uploading||storageReady===false} onChange={e=>{void uploadFiles(e.target.files);e.currentTarget.value=''}}/>
+        </label>
+        <p className="help">Massimo 8 MB per file. Formati: JPG, PNG, WebP, PDF, TXT e DOCX. I file non hanno URL pubblici.</p>
       </section>
 
       <label>Note tecniche<textarea value={notes} onChange={e=>setNotes(e.target.value)} maxLength={5000} rows={5}/></label>
