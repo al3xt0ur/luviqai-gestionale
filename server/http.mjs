@@ -16,6 +16,7 @@ import {createAssistant} from './ai.mjs';
 import {recordTechnicalLog,platformMonitoring,publicHealth} from './monitoring.mjs';
 import {privacyState,privacySubjects,createPrivacyRequest,updatePrivacyRequest,privacyExport} from './privacy.mjs';
 import {clientIp} from './request-ip.mjs';
+import {attachmentStorageStatus,createAttachment,readAttachment,removeAttachment} from './intervention-attachments.mjs';
 const assistant=createAssistant();
 
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -59,7 +60,8 @@ const server=createServer(async(req,res)=>{
       if(req.headers['sec-fetch-site']==='cross-site')fail('Origine non consentita.',403);
       if(!req.headers['content-type']?.startsWith('application/json'))fail('Formato richiesta non valido.',415);
       let body='';
-      for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>(url.pathname==='/api/company'?800000:100000))fail('Richiesta troppo grande.',413);}
+      const maxBody=url.pathname==='/api/company'?800000:url.pathname==='/api/intervention-attachment'?7*1024*1024:100000;
+      for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>maxBody)fail('Richiesta troppo grande.',413);}
       try {input=JSON.parse(body);}catch{fail('Richiesta non valida.');}
       if(!input||Array.isArray(input)||typeof input!=='object')fail('Richiesta non valida.');
     }
@@ -148,6 +150,16 @@ const server=createServer(async(req,res)=>{
       if(req.method==='POST'&&url.pathname==='/api/mail-cancel')return send(200,await cancelAttempt(store,actor,input));
       const messageMatch=url.pathname.match(/^\/api\/mail\/([a-f0-9-]{36})(\/eml)?$/);
       if(req.method==='GET'&&messageMatch){if(messageMatch[2]){const eml=await messageEML(store,actor,messageMatch[1],mailSettings);res.writeHead(200,{'Content-Type':'message/rfc822','Content-Disposition':'attachment; filename="email-preventivo.eml"','Cache-Control':'no-store'});return res.end(eml);}return send(200,await messageDetail(store,actor,messageMatch[1]));}
+      if(req.method==='GET'&&url.pathname==='/api/storage/status')return send(200,attachmentStorageStatus());
+      const attachmentMatch=url.pathname.match(/^\/api\/intervention-attachments\/([a-f0-9-]{36})$/);
+      if(req.method==='GET'&&attachmentMatch){
+        const file=await readAttachment(store,actor,attachmentMatch[1]);
+        const safe=String(file.meta.filename||'allegato').replace(/[\r\n"]/g,'_');
+        res.writeHead(200,{'Content-Type':file.meta.content_type||file.contentType,'Content-Disposition':'inline; filename="'+safe+'"','Cache-Control':'private, no-store','Content-Length':file.bytes.length});
+        return res.end(file.bytes);
+      }
+      if(req.method==='POST'&&url.pathname==='/api/intervention-attachment')return send(200,await createAttachment(store,actor,input));
+      if(req.method==='POST'&&url.pathname==='/api/intervention-attachment-delete')return send(200,await removeAttachment(store,actor,input));
       if(req.method==='GET'&&url.pathname==='/api/state') {
         const state=await snapshot(store,actor);
         return send(200,{...state,team:actor.role!=='operator'?await team(store,actor):[]});
