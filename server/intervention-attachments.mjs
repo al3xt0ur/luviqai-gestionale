@@ -38,23 +38,25 @@ export async function createAttachment(store,actor,input,fetchImpl=fetch){
 }
 
 export async function readAttachment(store,actor,id,fetchImpl=fetch){
-  return tenantTransaction(store,actor.tenantId,async tx=>{
-    const row=await one(tx,'SELECT * FROM intervention_attachments WHERE tenant_id=$1 AND id=$2',[actor.tenantId,id]);
-    if(!row)fail('Allegato non trovato.',404);
-    await assertAccess(tx,actor,row.intervention_id);
-    const object=await getPrivateObject(storageConfig(),row.storage_key,fetchImpl);
-    return {meta:row,...object};
+  const row=await tenantTransaction(store,actor.tenantId,async tx=>{
+    const found=await one(tx,'SELECT * FROM intervention_attachments WHERE tenant_id=$1 AND id=$2',[actor.tenantId,id]);
+    if(!found)fail('Allegato non trovato.',404);
+    await assertAccess(tx,actor,found.intervention_id);
+    return found;
   });
+  const object=await getPrivateObject(storageConfig(),row.storage_key,fetchImpl);
+  return {meta:row,...object};
 }
 
 export async function removeAttachment(store,actor,input,fetchImpl=fetch){
   const id=String(input?.id||'');
-  return tenantTransaction(store,actor.tenantId,async tx=>{
-    const row=await one(tx,'SELECT * FROM intervention_attachments WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[actor.tenantId,id]);
-    if(!row)fail('Allegato non trovato.',404);
-    await assertAccess(tx,actor,row.intervention_id);
-    await deletePrivateObject(storageConfig(),row.storage_key,fetchImpl);
-    await tx.query('DELETE FROM intervention_attachments WHERE tenant_id=$1 AND id=$2',[actor.tenantId,id]);
-    return {ok:true,id};
+  const row=await tenantTransaction(store,actor.tenantId,async tx=>{
+    const found=await one(tx,'SELECT * FROM intervention_attachments WHERE tenant_id=$1 AND id=$2',[actor.tenantId,id]);
+    if(!found)fail('Allegato non trovato.',404);
+    await assertAccess(tx,actor,found.intervention_id);
+    return found;
   });
+  await deletePrivateObject(storageConfig(),row.storage_key,fetchImpl);
+  await tenantTransaction(store,actor.tenantId,async tx=>{await tx.query('DELETE FROM intervention_attachments WHERE tenant_id=$1 AND id=$2',[actor.tenantId,id]);});
+  return {ok:true,id};
 }
