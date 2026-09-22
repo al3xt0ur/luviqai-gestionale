@@ -27,7 +27,7 @@ try{
  await Promise.race([once(child.stdout,'data'),once(child,'exit').then(()=>{throw Error('Avvio fallito: '+logs)}),new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('Timeout avvio')),15000);t.unref()})]);
  browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000},locale:'it-IT',timezoneId:'Europe/Rome'});page.setDefaultTimeout(12000);
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto('http://localhost:'+port);await page.getByLabel('Codice azienda').fill('browser-ops');await page.getByLabel('Email',{exact:true}).fill('test@example.com');await page.getByLabel('Password',{exact:true}).fill('Password-browser-2026!');await page.getByRole('button',{name:'Accedi',exact:true}).click();
+ await page.goto('http://localhost:'+port);const loginForm=page.locator('form:visible').filter({has:page.locator('input[name="slug"]')}).first();await loginForm.locator('input[name="slug"]').fill('browser-ops');await loginForm.locator('input[name="email"]').fill('test@example.com');await loginForm.locator('input[name="password"]').fill('Password-browser-2026!');await loginForm.getByRole('button',{name:'Accedi',exact:true}).click();
  await page.getByText('Cruscotto operativo',{exact:true}).waitFor();await page.getByText('Totale emesso',{exact:true}).waitFor();
  const nav=name=>page.locator('aside nav').getByRole('button',{name:new RegExp(name)});
  await nav('Flussi operativi').click();await page.getByRole('button',{name:'＋ Squadra',exact:true}).click();await page.getByLabel('Nome squadra').fill('Squadra test');await page.getByRole('button',{name:'Conferma',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});
