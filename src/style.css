@@ -19,3 +19,11 @@
 .check-row{display:flex;align-items:center;gap:10px;margin:8px 0}
 .check-row .done{text-decoration:line-through;opacity:.65}
 .check-row>span{flex:1}
+
+
+.attachment-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:12px 0}
+.attachment-card{border:1px solid #dce6e3;border-radius:12px;padding:10px;background:#fff;display:flex;flex-direction:column;gap:9px}
+.attachment-card img{width:100%;height:130px;object-fit:cover;border-radius:9px;border:1px solid #e7eeec}
+.attachment-card strong,.attachment-card small{display:block;overflow-wrap:anywhere}
+.attachment-file-icon{height:130px;border-radius:9px;background:#f4f7f6;display:grid;place-items:center;font-size:38px;color:#62777b}
+.attachment-upload{display:block;margin-top:12px}
