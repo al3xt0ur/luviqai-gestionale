@@ -14,7 +14,8 @@ export function storageConfig(env=process.env){
 }
 
 function safeName(value){
-  const raw=decodeURIComponent(String(value||'file')).normalize('NFKC').replace(/[\r\n]/g,' ').trim();
+  let raw=String(value||'file');try{raw=decodeURIComponent(raw)}catch{}
+  raw=raw.normalize('NFKC').replace(/[\r\n]/g,' ').trim();
   const cleaned=raw.replace(/[^\p{L}\p{N}._ -]+/gu,'_').replace(/\s+/g,' ').slice(0,180);
   return cleaned||'file';
 }
@@ -54,6 +55,12 @@ async function storageFetch(config,path,options={}){
     throw error;
   }
   return response;
+}
+
+export async function checkBucket(config){
+  if(!config.configured)return {configured:false,ready:false};
+  try{await storageFetch(config,`bucket/${config.bucket}`,{method:'HEAD'});return {configured:true,ready:true};}
+  catch{return {configured:true,ready:false};}
 }
 
 export async function uploadObject(config,{tenantId,interventionId,filename,contentType,buffer}){
