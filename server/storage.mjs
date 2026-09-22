@@ -55,11 +55,11 @@ export async function connectStore({ url, path } = {}) {
 }
 
 export async function migrate(store) {
-  const sql = await readFile(new URL('./schema.sql', import.meta.url), 'utf8');
+  const scripts=await Promise.all(['schema.sql','schema-operations.sql'].map(name=>readFile(new URL('./'+name,import.meta.url),'utf8')));
   const run = () => store.transaction(async tx => {
     // Serializza le migrazioni anche con più processi PostgreSQL.
     await tx.query('SELECT pg_advisory_xact_lock(736281)');
-    for (const statement of sql.split('-- next')) {
+    for(const sql of scripts)for (const statement of sql.split('-- next')) {
       if (statement.trim()) await tx.query(statement);
     }
     if(!(await one(tx,'SELECT version FROM schema_version WHERE version=3'))) {
@@ -93,4 +93,12 @@ export async function tenantTransaction(store, tenantId, fn) {
     if (!tenant) throw new Error('Azienda non disponibile.');
     return fn(tx, tenant);
   });
+}
+
+// External databases are migrated only by the explicit administration command.
+export async function initializeStore(store) {
+  if (store.kind !== 'PostgreSQL') return migrate(store);
+  const present = await one(store, "SELECT to_regclass('public.schema_version') AS name");
+  const version = present.name ? Number((await one(store,'SELECT max(version) AS version FROM schema_version')).version) : 0;
+  if (version !== 20) throw Error('Schema database incompatibile: eseguire la migrazione esplicita verificata prima dell’avvio (versione richiesta: 20).');
 }

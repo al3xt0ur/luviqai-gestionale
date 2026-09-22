@@ -2,11 +2,16 @@
 
 ## Health check
 
-L'endpoint pubblico `/api/health` verifica che il processo risponda, che il database sia raggiungibile e che non ci sia un picco di errori HTTP 5xx recenti. Non espone stack trace, conteggi interni o credenziali.
+L'endpoint pubblico `/api/health` verifica che il processo risponda, che il database sia raggiungibile e che non ci sia un picco di errori HTTP 5xx recenti. Il campo `release` espone lo SHA Git validato fornito dall'ambiente di deploy (`RENDER_GIT_COMMIT`, con fallback `GIT_COMMIT`/`SOURCE_VERSION`), oppure `unknown`. Non espone stack trace, conteggi interni o credenziali.
 
 ## Controllo esterno
 
 Il workflow `.github/workflows/uptime-staging.yml` controlla lo staging. Quando il workflow è presente sul branch predefinito GitHub, la schedulazione viene eseguita ogni 30 minuti.
+
+Il controllo pianificato verifica salute e database. Avviandolo manualmente è
+possibile indicare `expected_release`: in quel caso il workflow fallisce anche
+se il servizio è sano ma lo SHA esposto non coincide. Questo è il controllo da
+usare per certificare il candidato durante il collaudo.
 
 Se il controllo fallisce, il workflow prova a inviare un alert tramite Resend e poi rimane rosso in GitHub Actions.
 

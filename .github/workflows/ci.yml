@@ -36,3 +36,10 @@ jobs:
         run: pnpm run build
       - name: Test su database temporanei
         run: pnpm test
+
+      - name: Installa Chromium per il collaudo UI
+        if: runner.os == 'Linux'
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Collaudo browser dei flussi operativi
+        if: runner.os == 'Linux'
+        run: node tests/browser-operations.mjs

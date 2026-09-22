@@ -1,5 +1,13 @@
 # Verifica della demo
 
+## Candidato PR #1 — 22 settembre 2026
+
+- Base funzionale `4146e072a981a373e45459bfca16335f7950772b`, destinazione `develop`, PR ancora in bozza.
+- Sulla base funzionale: GitHub Actions n. 193 riuscito su Linux e Windows e collaudo Chromium/Linux riuscito.
+- Dopo il riallineamento documentale e il controllo SHA: build locale riuscita; 82 test PGlite superati, zero fallimenti. L'esito CI autorevole è quello associato alla testa corrente della PR.
+- Non eseguiti collaudo PostgreSQL remoto, migrazione staging e matrice S01–S10.
+- La documentazione storica sotto fotografa consegne precedenti e non sostituisce `docs/PR1-VERIFICATION.md`.
+
 ## Widget chat — 17 settembre 2026
 
 - Assistente trasformato in widget flottante disponibile nelle sezioni aziendali, con conversazione mantenuta durante la navigazione e riduzione del pannello.

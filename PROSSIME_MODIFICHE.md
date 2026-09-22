@@ -1,5 +1,8 @@
 # Prossime modifiche
 
+Stato riferito al candidato della PR #1 del 22 settembre 2026. Le voci presenti
+solo nel candidato non sono ancora disponibili in produzione.
+
 ## Completate nella prima consegna del 15 settembre 2026
 
 - [x] Archiviazione e ripristino clienti, con conferma, motivazione e storico. Blocco in presenza di ore residue o interventi aperti.
@@ -16,7 +19,7 @@ Completato anche il pannello amministrativo luviqAI: due account personali con a
 
 - [x] Catalogo pacchetti configurabile, preventivi con PDF e logo, stati e storico.
 - [x] Email in anteprima/SMTP, risposta cliente con note, notifiche e nuova proposta dopo un rifiuto.
-- [ ] Conversione dei preventivi accettati in pacchetto/intervento.
+- [x] Conversione esplicita dei preventivi accettati in pacchetto non pagato nel candidato PR #1. La creazione della commessa e degli interventi resta un passaggio separato.
 - [x] Fatturazione interna: documenti, PDF, scadenze e registrazione pagamenti.
 - [ ] Servizio di fatturazione elettronica.
 - [x] Assistente AI iniziale: consultazioni e bozze preventivi con conferma, permessi e storico.
@@ -24,6 +27,9 @@ Completato anche il pannello amministrativo luviqAI: due account personali con a
 - [ ] Account clienti con accesso ai propri dati.
 - [ ] Abbonamenti luviqAI, limiti e incasso ricorrente.
 - [x] Repository GitHub condiviso e database PostgreSQL su Supabase.
-- [ ] Hosting dell'app, recupero email, monitoraggio e gestione backup esterni.
+- [x] Hosting Render, recupero password email, MFA, monitoraggio e workflow di backup cifrato.
+- [x] Avvisi interni e KPI base nel candidato PR #1.
+- [ ] Scheduler e invio email per reminder preventivi/appuntamenti, solleciti fatture e saldo ore.
+- [ ] Collaudo PostgreSQL/staging e prova documentata di ripristino prima del merge della PR #1.
 
 Nessuna cancellazione definitiva dello storico. Database operativo su Supabase; nessun incasso automatico collegato.

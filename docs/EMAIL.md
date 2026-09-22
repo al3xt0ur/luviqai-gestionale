@@ -2,7 +2,7 @@
 
 ## Prova locale
 
-La modalità predefinita è **simulazione locale**: nessuna email reale viene spedita. L’app carica il file riservato `.env.mail` all’avvio, escluso da Git. Per questa installazione è predisposto il mittente Gmail indicato dal gestore; password e indirizzo pubblico non sono ancora configurati. Non mettere credenziali in chat o nei sorgenti.
+La modalità predefinita per sviluppo e staging è **preview**: nessuna email reale viene spedita. L’app carica il file riservato `.env.mail` all’avvio, escluso da Git. La produzione usa Resend tramite variabili riservate dell'ambiente Render; SMTP/Gmail resta un'alternativa supportata ma non necessaria alla configurazione corrente. Non mettere credenziali in chat o nei sorgenti.
 
 1. Inserire un’email valida nel cliente; se il preventivo esiste già, salvare nuovamente la bozza per aggiornare il destinatario nel documento.
 2. Aprire il preventivo e scegliere **Invia via email → Conferma invio email**. Verificare il destinatario prima di confermare. Modifiche e operazioni manuali sono bloccate finché l’invio è in corso o da verificare.
@@ -12,9 +12,9 @@ La modalità predefinita è **simulazione locale**: nessuna email reale viene sp
 
 I collegamenti localhost funzionano solo sul computer su cui è avviata l’app. Per i clienti esterni serve un indirizzo pubblico HTTPS.
 
-## Collegamento Gmail e invio reale
+## Collegamento SMTP/Gmail opzionale
 
-Il trasporto SMTP è predisposto, ma **non è stato collegato o verificato con una casella reale**. Per attivarlo servono l’app raggiungibile via HTTPS e una password per le app Google. Le [istruzioni Google](https://support.google.com/accounts/answer/185833?hl=it) richiedono la verifica in due passaggi; l’opzione può non essere disponibile per alcuni account. Non utilizzare la normale password di Gmail. Parametri documentati da [Google per SMTP](https://support.google.com/a/answer/176600?hl=it).
+Il trasporto SMTP è predisposto, ma non è il provider dichiarato per la produzione corrente. Per attivarlo in un ambiente dedicato servono l’app raggiungibile via HTTPS e una password per le app Google. Le [istruzioni Google](https://support.google.com/accounts/answer/185833?hl=it) richiedono la verifica in due passaggi; l’opzione può non essere disponibile per alcuni account. Non utilizzare la normale password di Gmail. Parametri documentati da [Google per SMTP](https://support.google.com/a/answer/176600?hl=it).
 
 Nel file privato `.env.mail` configurare, soltanto quando l’hosting è pronto:
 
@@ -99,3 +99,7 @@ Le comunicazioni di sistema, come la creazione degli account, usano il mittente 
 La password della casella aziendale non viene richiesta né memorizzata. Per poter usare `preventivi@azienda.it` come From, il relativo dominio deve essere autorizzato nel provider email della piattaforma. Il pulsante **Invia email di prova** accoda un messaggio usando esattamente il mittente aziendale configurato; l'esito è visibile in **Email e notifiche**.
 
 La configurazione mittente è isolata per tenant tramite Row Level Security ed è inclusa nei backup logici.
+
+Gli avvisi operativi del candidato PR #1 restano interni all'applicazione: non
+usano automaticamente SMTP o Resend. Reminder e solleciti email richiedono un
+progetto separato con destinatari, consenso, coda, retry e collaudo provider.

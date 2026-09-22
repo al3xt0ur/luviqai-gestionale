@@ -1,3 +1,4 @@
+import {operationalChange,syncAlerts,ensureNoOverlap,dashboard} from './operations.mjs';
 import {normalizeLogo} from './logo.mjs';
 import {changeQuote,calculateLines,today} from './quotes.mjs';
 import { one, rows, tenantTransaction } from './storage.mjs';
@@ -18,13 +19,14 @@ export function required(value, max=300) {
 }
 export const camel = record => Object.fromEntries(Object.entries(record).filter(([k])=>k!=='tenant_id').map(([k,v])=>[k.replace(/_([a-z])/g,(_,c)=>c.toUpperCase()),v]));
 const fields = {
+  teams:['name','active','created'],
   quotes: ['clientId','number','revision','status','issueDate','validUntil','document','net','tax','total','sourceId','created','updated'],
   invoices: ['clientId','quoteId','number','revision','status','issueDate','dueDate','document','net','tax','total','payment','paidAt','created','updated'],
   clients: ['name','email','phone','address','archived'],
-  packages: ['clientId','tier','original','initial','rule','paid','renewedFrom','created','templateId','templateRevision','description'],
+  packages: ['clientId','tier','original','initial','rule','paid','renewedFrom','created','templateId','templateRevision','description','sourceQuoteId','sourceQuoteSlot'],
   package_templates: ['name','description','minutes','rule','active','revision'],
   jobs: ['clientId','quoteId','packageId','title','description','status','dueDate','revision','created','updated'],
-  interventions: ['packageId','jobId','date','service','team','duration','operators','notes','status','assignedUserId','recurrenceSeriesId','recurrenceIndex'],
+  interventions: ['packageId','jobId','date','service','team','duration','operators','notes','status','assignedUserId','recurrenceSeriesId','recurrenceIndex','teamId','recurrenceId','sourceQuoteId','sourceQuoteSlot'],
   audit: ['date','author','authorId','action','clientId','interventionId','beforeValue','afterValue','reason'],
 };
 const snake=s=>s.replace(/[A-Z]/g,c=>'_'+c.toLowerCase());
@@ -64,7 +66,9 @@ export async function snapshotTx(tx,tenantId) {
   const mail=(await rows(tx,"SELECT quote_id,status,mode FROM mail_messages WHERE tenant_id=$1 AND kind='quote' AND status<>'cancelled' ORDER BY created DESC",[tenantId]));
   for(const q of quotes){const m=mail.find(m=>m.quote_id===q.id);q.emailStatus=m?.status||null;q.emailMode=m?.mode||null;}
   const unreadNotifications=Number((await one(tx,'SELECT count(*) AS count FROM notifications WHERE tenant_id=$1 AND read_at IS NULL',[tenantId])).count);
-  return {clients,packages,jobs,interventions,audit,catalog,quotes,invoices,unreadNotifications};
+  const teams=(await rows(tx,'SELECT * FROM teams WHERE tenant_id=$1 ORDER BY name',[tenantId])).map(camel);
+  const recurrenceSeries=(await rows(tx,'SELECT * FROM recurrence_series WHERE tenant_id=$1 ORDER BY created DESC',[tenantId])).map(camel);
+  return {clients,packages,jobs,interventions,audit,catalog,quotes,invoices,unreadNotifications,teams,recurrenceSeries};
 }
 
 export async function snapshot(store,actor) {
@@ -75,9 +79,10 @@ export async function snapshot(store,actor) {
       state.packages=state.packages.filter(p=>state.interventions.some(i=>i.packageId===p.id));
       state.jobs=state.jobs.filter(j=>state.interventions.some(i=>i.jobId===j.id));
       state.clients=state.clients.filter(c=>state.packages.some(p=>p.clientId===c.id)||state.jobs.some(j=>j.clientId===c.id));
-      state.audit=[];
+      state.audit=[];state.teams=[];state.recurrenceSeries=[];
       state.catalog=[];state.quotes=[];state.invoices=[];state.unreadNotifications=0;
     }
+    if(actor.role!=='operator'){state.alerts=(await syncAlerts(tx,actor.tenantId,state,tenant)).map(camel);state.dashboard=dashboard(state);}
     return {...state,company:camel(tenant)};
   });
 }
@@ -100,7 +105,9 @@ export async function mutate(store,actor,action,input,key) {
     const active=c=>{if(c.archived)fail('Il cliente è archiviato: ripristinalo prima di aggiungere attività.');};
     let before=null,after=null,clientId=null,interventionId=null;
     const reason=String(input.reason||'').trim();
-    if(action==='job'||action==='job-status') {
+    if(['team','quote-convert','recurrence','recurrence-cancel','alert-settings','alert-read'].includes(action)){
+      ({before=null,after,clientId=null,interventionId=null}=await operationalChange({tx,t,state,tenant,actor,input,action,insert,update,fail,integer,required}));
+    } else if(action==='job'||action==='job-status') {
       before=input.id?getJ(input.id):null;
       if(before&&integer(input.revision,1,1e9)!==before.revision)fail('La commessa è stata modificata. Ricarica i dati prima di continuare.',409);
       const now=new Date().toISOString();
@@ -204,9 +211,13 @@ export async function mutate(store,actor,action,input,key) {
           if(conflict)fail(`Operatore già impegnato nell'intervallo selezionato (intervento #${conflict.id}).`,409);
         }
       }
+      const selectedTeam=input.teamId?state.teams.find(x=>x.id===Number(input.teamId)&&x.active):null;
+      if(input.teamId&&!selectedTeam)fail('Squadra non disponibile.');
+      const checked=[...state.interventions];
+      for(const date of occurrences){const candidate={date:date.toISOString(),duration,teamId:selectedTeam?.id,assignedUserIds};ensureNoOverlap(checked,candidate,fail);checked.push({...candidate,status:input.status,id:crypto.randomUUID()});}
       const recurrenceSeriesId=occurrences.length>1?crypto.randomUUID():null,created=[];
       for(let index=0;index<occurrences.length;index++){
-        const value=await insert(tx,t,'interventions',{packageId:p?.id||null,jobId:job?.id||null,date:occurrences[index].toISOString(),service:required(input.service),team:required(input.team),duration,operators,notes:String(input.notes||'').slice(0,3000),status:input.status,assignedUserId:assignedUserIds[0]||null,recurrenceSeriesId,recurrenceIndex:index});
+        const value=await insert(tx,t,'interventions',{teamId:selectedTeam?.id||null,sourceQuoteId:p?.sourceQuoteId||null,packageId:p?.id||null,jobId:job?.id||null,date:occurrences[index].toISOString(),service:required(input.service),team:required(input.team),duration,operators,notes:String(input.notes||'').slice(0,3000),status:input.status,assignedUserId:assignedUserIds[0]||null,recurrenceSeriesId,recurrenceIndex:index});
         for(const userId of assignedUserIds)await tx.query('INSERT INTO intervention_assignments(tenant_id,intervention_id,user_id,created) VALUES($1,$2,$3,$4)',[t,value.id,userId,new Date().toISOString()]);
         created.push({...value,assignedUserIds});
       }
@@ -225,6 +236,7 @@ export async function mutate(store,actor,action,input,key) {
         const assignedUserIds=before.assignedUserIds?.length?before.assignedUserIds:(before.assignedUserId?[before.assignedUserId]:[]);
         const conflict=state.interventions.find(i=>i.id!==before.id&&i.status==='planned'&&assignedUserIds.some(id=>i.assignedUserIds?.includes(id)||i.assignedUserId===id)&&date.getTime()<new Date(i.date).getTime()+i.duration*60000&&new Date(i.date).getTime()<date.getTime()+before.duration*60000);
         if(conflict)fail(`Operatore già impegnato nell'intervallo selezionato (intervento #${conflict.id}).`,409);
+        ensureNoOverlap(state.interventions,{...before,date:date.toISOString()},fail);
         after=await update(tx,t,'interventions',before.id,{date:date.toISOString()});
       } else {
         if(new Date(before.date).getTime()>Date.now())fail('Non è possibile completare o approvare un intervento futuro.');

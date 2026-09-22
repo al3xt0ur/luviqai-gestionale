@@ -1,5 +1,10 @@
 # LuviqAI Market Ready — modello operativo
 
+Questo documento descrive l'architettura obiettivo. Commesse, interventi,
+rapportini e fatture sono presenti nella base integrata, ma il ciclo completo
+non è ancora un'unica automazione: creazione della commessa, conversione in
+pacchetto, fatturazione e incasso restano azioni distinte e confermate.
+
 ## Obiettivo
 
 LuviqAI deve coprire un ciclo operativo completo per piccole aziende di servizi:

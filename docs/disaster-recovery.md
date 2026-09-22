@@ -4,7 +4,9 @@
 
 Il backup applicativo viene esportato dal database, cifrato **prima** di essere caricato come artifact esterno e poi ripristinato in un database temporaneo per verificare che sia realmente utilizzabile.
 
-La prima attivazione riguarda esclusivamente lo **staging**. La produzione va abilitata solo dopo una prova completa e con segreti separati.
+Staging e produzione hanno workflow e segreti separati. La presenza dei file nel
+repository non dimostra che segreti, schedulazione e artifact siano operativi:
+controllare gli ultimi esiti GitHub Actions prima di considerarli attivi.
 
 ## Segreti GitHub necessari
 
@@ -26,7 +28,14 @@ Il workflow **Backup staging cifrato**:
 7. prova il restore completo;
 8. carica su GitHub Actions soltanto il file cifrato.
 
-I backup staging restano disponibili come artifact per 7 giorni.
+I backup staging restano disponibili come artifact per 30 giorni, come configurato nel workflow. La retention dell'artifact non sostituisce una politica esterna di lungo periodo.
+
+La prova automatica ripristina su PGlite vuoto. Verifica formato, checksum,
+decifratura e relazioni applicative, ma non sostituisce una prova periodica su
+un clone PostgreSQL/Supabase.
+
+Il workflow non applica migrazioni al database sorgente. Prima di una migrazione
+staging va avviato e completato esplicitamente, conservando l'artifact cifrato.
 
 ## Limiti e segreti applicativi
 
@@ -39,9 +48,6 @@ Non usare automaticamente questo workflow contro la produzione. Prima:
 - definire retention e destinazione esterna di lungo periodo;
 - usare una `BACKUP_ENCRYPTION_KEY` distinta e stabile;
 - documentare dove sono custodite le variabili d'ambiente necessarie al ripristino.
-
-
-## Produzione
 
 Il workflow `.github/workflows/backup-production.yml` usa una chiave e un collegamento database separati dallo staging.
 

@@ -52,8 +52,9 @@ export async function platformMonitoring(store,actor,{mail,storeKind}={}){
 }
 
 
-export async function publicHealth(store,{errorThreshold=5,windowMinutes=15}={}){
+export async function publicHealth(store,{errorThreshold=5,windowMinutes=15,release='unknown'}={}){
  const checkedAt=now(),since=new Date(Date.now()-windowMinutes*60000).toISOString();
+ const safeRelease=/^[0-9a-f]{7,40}$/i.test(String(release))?String(release).toLowerCase():'unknown';
  try{
   const [db,errorStats]=await Promise.all([
    one(store,'SELECT 1 AS ok'),
@@ -66,12 +67,14 @@ export async function publicHealth(store,{errorThreshold=5,windowMinutes=15}={})
    ok:databaseOk&&!degraded,
    status:databaseOk?(degraded?'degraded':'ok'):'down',
    checkedAt,
+   release:safeRelease,
    checks:{database:databaseOk?'ok':'down',recentErrors:degraded?'critical':'ok'},
    windowMinutes
   };
  }catch{
   return {
    ok:false,status:'down',checkedAt,
+   release:safeRelease,
    checks:{database:'down',recentErrors:'unknown'},
    windowMinutes
   };
