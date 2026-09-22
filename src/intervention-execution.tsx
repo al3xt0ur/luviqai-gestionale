@@ -29,7 +29,7 @@ export function InterventionExecution({item,session,onClose,onSaved}:{item:Inter
   },[initial.elapsedSeconds,initial.timerStartedAt,now]);
 
   useEffect(()=>{if(!initial.timerStartedAt)return;const id=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[initial.timerStartedAt]);
-  useEffect(()=>{fetch('/api/storage/status',{headers:{'X-Tenant-Context':session.user.tenantId}}).then(async r=>r.ok?r.json():Promise.reject()).then(v=>setStorageReady(!!v.configured)).catch(()=>setStorageReady(false));},[session.user.tenantId]);
+  useEffect(()=>{fetch('/api/storage/status',{headers:{'X-Tenant-Context':session.user.tenantId}}).then(async r=>r.ok?r.json():Promise.reject()).then(v=>setStorageReady(!!v.ready)).catch(()=>setStorageReady(false));},[session.user.tenantId]);
   useEffect(()=>{
     const c=canvas.current;if(!c)return;
     const ctx=c.getContext('2d');if(!ctx)return;
