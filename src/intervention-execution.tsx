@@ -4,7 +4,8 @@ import {post,Session} from './access';
 type ChecklistItem={id:string;text:string;done:boolean};
 type MaterialItem={id:string;text:string};
 type Execution={timerStartedAt?:string|null;elapsedSeconds?:number;checklist?:ChecklistItem[];materials?:MaterialItem[];reportNotes?:string;signatureName?:string;signatureData?:string};
-type Intervention={id:number;service:string;date:string;status:string;execution?:Execution|null;attachments?:any[]};
+type Attachment={id:string;filename:string;contentType:string;sizeBytes:number;created:string;createdBy:string};
+type Intervention={id:number;service:string;date:string;status:string;execution?:Execution|null;attachments?:Attachment[]};
 
 const durationLabel=(seconds:number)=>{
   const h=Math.floor(seconds/3600),m=Math.floor((seconds%3600)/60),s=seconds%60;
@@ -20,6 +21,7 @@ export function InterventionExecution({item,session,onClose,onSaved}:{item:Inter
   const [signatureData,setSignatureData]=useState(initial.signatureData||'');
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[now,setNow]=useState(Date.now());
   const [newCheck,setNewCheck]=useState(''),[newMaterial,setNewMaterial]=useState('');
+  const [attachments,setAttachments]=useState<Attachment[]>(item.attachments||[]),[storage,setStorage]=useState<any>(null);
   const canvas=useRef<HTMLCanvasElement|null>(null),drawing=useRef(false);
   const liveSeconds=useMemo(()=>{
     const base=Number(initial.elapsedSeconds||0);
@@ -27,6 +29,7 @@ export function InterventionExecution({item,session,onClose,onSaved}:{item:Inter
   },[initial.elapsedSeconds,initial.timerStartedAt,now]);
 
   useEffect(()=>{if(!initial.timerStartedAt)return;const id=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[initial.timerStartedAt]);
+  useEffect(()=>{fetch('/api/storage/status',{headers:{'X-Tenant-Context':session.user.tenantId}}).then(r=>r.ok?r.json():null).then(setStorage).catch(()=>setStorage({available:false}))},[session.user.tenantId]);
   useEffect(()=>{
     const c=canvas.current;if(!c)return;
     const ctx=c.getContext('2d');if(!ctx)return;
@@ -53,6 +56,23 @@ export function InterventionExecution({item,session,onClose,onSaved}:{item:Inter
   }
   function addChecklist(){const text=newCheck.trim();if(!text)return;setChecklist(v=>[...v,{id:crypto.randomUUID(),text,done:false}]);setNewCheck('')}
   function addMaterial(){const text=newMaterial.trim();if(!text)return;setMaterials(v=>[...v,{id:crypto.randomUUID(),text}]);setNewMaterial('')}
+  async function uploadAttachment(file?:File){
+    if(!file)return;
+    if(file.size>5*1024*1024){setError('Il file supera il limite di 5 MB.');return;}
+    setBusy(true);setError('');
+    try{
+      const data=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(Error('Impossibile leggere il file.'));reader.readAsDataURL(file)});
+      const result=await post('intervention-attachment',{interventionId:item.id,filename:file.name,contentType:file.type,data},session.csrf,session.user.tenantId);
+      setAttachments(v=>[...v,result]);
+      await onSaved();
+    }catch(e:any){setError(e.message)}finally{setBusy(false)}
+  }
+  async function deleteAttachment(file:Attachment){
+    if(!confirm('Eliminare '+file.filename+'?'))return;
+    setBusy(true);setError('');
+    try{await post('intervention-attachment-delete',{id:file.id},session.csrf,session.user.tenantId);setAttachments(v=>v.filter(x=>x.id!==file.id));await onSaved();}
+    catch(e:any){setError(e.message)}finally{setBusy(false)}
+  }
 
   return <div className="overlay" onClick={e=>{if(e.target===e.currentTarget&&!busy)onClose()}}>
     <section role="dialog" aria-modal="true" className="modal execution-modal">
@@ -78,6 +98,14 @@ export function InterventionExecution({item,session,onClose,onSaved}:{item:Inter
       </section>
 
       <label>Note tecniche<textarea value={notes} onChange={e=>setNotes(e.target.value)} maxLength={5000} rows={5}/></label>
+      <section className="settings-card">
+        <h3>Foto e allegati</h3>
+        {storage?.available===false&&<div className="alert">Storage privato non ancora configurato su questo ambiente.</div>}
+        {attachments.length?<div className="attachment-list">{attachments.map(file=><div className="attachment-row" key={file.id}><div><strong>{file.filename}</strong><small>{(file.sizeBytes/1024).toLocaleString('it-IT',{maximumFractionDigits:1})} KB · {new Date(file.created).toLocaleString('it-IT')}</small></div><div className="actions"><a className="button secondary" href={'/api/intervention-attachments/'+file.id+'?company='+encodeURIComponent(session.user.tenantId)} target="_blank" rel="noreferrer">Apri</a><button className="text danger" type="button" disabled={busy} onClick={()=>void deleteAttachment(file)}>Elimina</button></div></div>)}</div>:<p className="help">Nessun allegato caricato.</p>}
+        <label>Carica foto o PDF<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" disabled={busy||storage?.available===false} onChange={e=>{const file=e.target.files?.[0];e.currentTarget.value='';void uploadAttachment(file)}}/></label>
+        <p className="help">JPG, PNG, WEBP o PDF · massimo 5 MB per file · archiviazione privata.</p>
+      </section>
+
 
       <section className="settings-card">
         <h3>Firma cliente</h3>
