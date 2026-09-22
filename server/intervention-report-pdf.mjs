@@ -69,6 +69,17 @@ export function interventionReportPDF({intervention,client,job,company}){
       const h=doc.heightOfString(ex.reportNotes,{width:W,lineGap:3});room(h+20);text(ex.reportNotes,L,y,W,9,false,ink);y+=h+24;
     }
 
+    const attachments=Array.isArray(intervention.attachments)?intervention.attachments:[];
+    if(attachments.length){
+      room(48);text('ALLEGATI',L,y,W,8,true,brand);y+=22;
+      for(const file of attachments){
+        room(24);
+        text('• '+file.filename+' · '+Math.max(1,Math.round(Number(file.sizeBytes||0)/1024))+' KB',L,y,W,9,false,ink);
+        y+=20;
+      }
+      y+=8;
+    }
+
     if(ex.signatureData){
       room(120);text('FIRMA CLIENTE',L,y,W,8,true,brand);y+=20;
       try{doc.image(Buffer.from(ex.signatureData.split(',')[1],'base64'),L,y,{fit:[220,75]});}catch{}
