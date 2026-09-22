@@ -462,7 +462,7 @@ END $$
 -- Server-only tables: the backend connects as their owner (postgres).
 -- RLS intentionally has no API policies; tenant policies on business tables are unchanged.
 -- Restrict only the 11 tables reported by the Supabase Security Advisor.
-DO $
+DO $$
 DECLARE table_name text; api_role text;
 BEGIN
   FOREACH table_name IN ARRAY ARRAY['schema_version','users','sessions','login_attempts','resets','imports','platform_audit','technical_log','privacy_requests','password_reset_rate','mfa_challenges'] LOOP
@@ -474,10 +474,10 @@ BEGIN
       END IF;
     END LOOP;
   END LOOP;
-END $;
+END $$;
 
 -- next
-DO $ BEGIN
+DO $$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=17) THEN
   ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at bigint NOT NULL DEFAULT 0;
   ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_seen_at bigint NOT NULL DEFAULT 0;
