@@ -48,7 +48,9 @@ export async function snapshotTx(tx,tenantId) {
   const clients=(await rows(tx,'SELECT * FROM clients WHERE tenant_id=$1 ORDER BY name',[tenantId])).map(camel);
   const jobs=(await rows(tx,'SELECT * FROM jobs WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel);
   const assignmentRows=(await rows(tx,'SELECT intervention_id,user_id FROM intervention_assignments WHERE tenant_id=$1 ORDER BY intervention_id,user_id',[tenantId])).map(camel);
-  const interventions=(await rows(tx,'SELECT i.*,coalesce(p.client_id,j.client_id) AS client_id,p.rule FROM interventions i LEFT JOIN packages p ON p.tenant_id=i.tenant_id AND p.id=i.package_id LEFT JOIN jobs j ON j.tenant_id=i.tenant_id AND j.id=i.job_id WHERE i.tenant_id=$1 ORDER BY i.date DESC,i.id DESC',[tenantId])).map(camel).map(i=>({...i,cost:i.duration*(i.packageId?(i.rule==='operator'?i.operators:1):i.operators),assignedUserIds:assignmentRows.filter(a=>a.interventionId===i.id).map(a=>a.userId)}));
+  const executionRows=(await rows(tx,'SELECT * FROM intervention_execution WHERE tenant_id=$1',[tenantId])).map(camel);
+  const attachmentRows=(await rows(tx,'SELECT id,intervention_id,filename,content_type,size_bytes,created,created_by FROM intervention_attachments WHERE tenant_id=$1 ORDER BY created',[tenantId])).map(camel);
+  const interventions=(await rows(tx,'SELECT i.*,coalesce(p.client_id,j.client_id) AS client_id,p.rule FROM interventions i LEFT JOIN packages p ON p.tenant_id=i.tenant_id AND p.id=i.package_id LEFT JOIN jobs j ON j.tenant_id=i.tenant_id AND j.id=i.job_id WHERE i.tenant_id=$1 ORDER BY i.date DESC,i.id DESC',[tenantId])).map(camel).map(i=>({...i,cost:i.duration*(i.packageId?(i.rule==='operator'?i.operators:1):i.operators),assignedUserIds:assignmentRows.filter(a=>a.interventionId===i.id).map(a=>a.userId),execution:executionRows.find(e=>e.interventionId===i.id)||null,attachments:attachmentRows.filter(a=>a.interventionId===i.id)}));
   const packages=(await rows(tx,'SELECT * FROM packages WHERE tenant_id=$1 ORDER BY id DESC',[tenantId])).map(camel).map(p=>{
     const list=interventions.filter(i=>i.packageId===p.id);
     const consumed=list.filter(i=>i.status==='approved').reduce((s,i)=>s+i.cost,0);
@@ -83,7 +85,7 @@ export async function snapshot(store,actor) {
 export async function mutate(store,actor,action,input,key) {
   if(!input||Array.isArray(input)||typeof input!=='object')fail('Richiesta non valida.');
   required(key,150);
-  if(!['manager','platform_admin'].includes(actor.role)&&action!=='complete')fail('Il tuo account non può eseguire questa operazione.',403);
+  if(!['manager','platform_admin'].includes(actor.role)&&!['complete','execution-start','execution-stop','execution-save'].includes(action))fail('Il tuo account non può eseguire questa operazione.',403);
   if('tenantId' in input || 'tenant_id' in input) fail('L’azienda non può essere modificata nella richiesta.',403);
   return tenantTransaction(store,actor.tenantId,async(tx,tenant)=>{
     if(!tenant.active&&actor.role!=='platform_admin')fail('Azienda sospesa.',403);
@@ -212,7 +214,7 @@ export async function mutate(store,actor,action,input,key) {
       interventionId=created[0].id;
     } else if(['complete','approve','rectify','cancel','reschedule'].includes(action)) {
       before=state.interventions.find(i=>i.id===Number(input.id))||fail('Intervento non trovato.',404);
-      if(actor.role==='operator'&&before.assignedUserId!==actor.id)fail('Intervento non assegnato al tuo account.',403);
+      if(actor.role==='operator'&&!(before.assignedUserIds?.includes(actor.id)||before.assignedUserId===actor.id))fail('Intervento non assegnato al tuo account.',403);
       interventionId=before.id;clientId=before.clientId;const p=before.packageId?getP(before.packageId):null;
       if(p&&!p.paid)fail('Pacchetto non pagato.');if(before.status==='cancelled')fail('Intervento già annullato.');
       if(action==='cancel') {
@@ -238,6 +240,35 @@ export async function mutate(store,actor,action,input,key) {
           after=await update(tx,t,'interventions',before.id,{duration,operators,status:action==='complete'?'pending':'approved'});
         }
       }
+    } else if(['execution-start','execution-stop','execution-save'].includes(action)) {
+      before=state.interventions.find(i=>i.id===Number(input.id))||fail('Intervento non trovato.',404);
+      if(before.status==='cancelled')fail('Intervento annullato.');
+      if(actor.role==='operator'&&!(before.assignedUserIds?.includes(actor.id)||before.assignedUserId===actor.id))fail('Intervento non assegnato al tuo account.',403);
+      interventionId=before.id;clientId=before.clientId;
+      const current=await one(tx,'SELECT * FROM intervention_execution WHERE tenant_id=$1 AND intervention_id=$2 FOR UPDATE',[t,before.id]);
+      const now=new Date().toISOString();
+      if(action==='execution-start'){
+        if(current?.timer_started_at)fail('Timer già avviato.');
+        await tx.query(`INSERT INTO intervention_execution(tenant_id,intervention_id,timer_started_at,updated)
+          VALUES($1,$2,$3,$3)
+          ON CONFLICT(tenant_id,intervention_id) DO UPDATE SET timer_started_at=EXCLUDED.timer_started_at,updated=EXCLUDED.updated`,[t,before.id,now]);
+      } else if(action==='execution-stop'){
+        if(!current?.timer_started_at)fail('Timer non avviato.');
+        const delta=Math.max(0,Math.floor((Date.now()-Date.parse(current.timer_started_at))/1000));
+        await tx.query('UPDATE intervention_execution SET timer_started_at=NULL,elapsed_seconds=elapsed_seconds+$3,updated=$4 WHERE tenant_id=$1 AND intervention_id=$2',[t,before.id,delta,now]);
+      } else {
+        const checklist=Array.isArray(input.checklist)?input.checklist.slice(0,100).map((item,index)=>({id:String(item?.id||index).slice(0,80),text:required(String(item?.text||''),300),done:item?.done===true})):[];
+        const materials=Array.isArray(input.materials)?input.materials.slice(0,100).map((item,index)=>({id:String(item?.id||index).slice(0,80),text:required(String(item?.text||''),300)})):[];
+        const reportNotes=String(input.reportNotes||'').trim();if(reportNotes.length>5000)fail('Le note del rapportino possono contenere al massimo 5000 caratteri.');
+        const signatureName=String(input.signatureName||'').trim();if(signatureName.length>200)fail('Nome firma troppo lungo.');
+        const signatureData=String(input.signatureData||'');
+        if(signatureData&&(!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(signatureData)||signatureData.length>550000))fail('Firma non valida o troppo grande.');
+        await tx.query(`INSERT INTO intervention_execution(tenant_id,intervention_id,checklist,materials,report_notes,signature_name,signature_data,updated)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+          ON CONFLICT(tenant_id,intervention_id) DO UPDATE SET checklist=EXCLUDED.checklist,materials=EXCLUDED.materials,report_notes=EXCLUDED.report_notes,signature_name=EXCLUDED.signature_name,signature_data=EXCLUDED.signature_data,updated=EXCLUDED.updated`,
+          [t,before.id,JSON.stringify(checklist),JSON.stringify(materials),reportNotes,signatureName,signatureData,now]);
+      }
+      after=camel(await one(tx,'SELECT * FROM intervention_execution WHERE tenant_id=$1 AND intervention_id=$2',[t,before.id]));
     } else if(action==='invoice'||action==='invoice-status'||action==='invoice-payment') {
       const invoiceDay=value=>{if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value)fail('Data fattura non valida.');return value;};
       before=input.id?state.invoices.find(i=>i.id===Number(input.id))||fail('Fattura non trovata.',404):null;

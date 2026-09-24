@@ -21,9 +21,9 @@ test('AI: isolamento, conferma esplicita, nessun dato DB al provider e duplicati
  let time=Date.now(),intent={action:'clients',name:'Casa'},sent,calls=0;
  const ai=createAssistant({settings:aiSettings({OPENROUTER_API_KEY:'fake-test-key'}),now:()=>time,fetcher:async(url,options)=>{calls++;sent=JSON.parse(options.body);return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify(intent)}}]})};}});
  await assert.rejects(ai.ask(db,{...a,role:'operator'},{quick:'pending_jobs'}),e=>e.status===403);
- await assert.rejects(ai.ask(db,a,{message:'Cerca Casa'}),/Conferma/);
- const search=await ai.ask(db,a,{message:'Cerca Casa',consent:true});assert.equal(search.rows.length,1);
- assert(!JSON.stringify(sent).includes('secret@example.com'));assert(!JSON.stringify(sent).includes('Solo Altra Azienda'));assert.equal(sent.provider.data_collection,'deny');assert.equal(calls,1);
+ const local=await ai.ask(db,a,{message:'Qual è il lavoro oltre scadenza?'});assert.match(local.text,/Nessun risultato/);assert.equal(calls,0);
+ const search=await ai.ask(db,a,{message:'Cerca Casa',history:['Prima domanda']});assert.equal(search.rows.length,1);
+ assert(!JSON.stringify(sent).includes('secret@example.com'));assert(!JSON.stringify(sent).includes('Solo Altra Azienda'));assert(JSON.stringify(sent.messages).includes('Prima domanda'));assert.equal(sent.provider.data_collection,'deny');assert.equal(calls,1);
  intent={action:'clients',name:'Solo Altra'};assert.equal((await ai.ask(db,a,{message:'Cerca Solo Altra',consent:true})).rows.length,0);
  intent={action:'sql',sql:'DELETE FROM clients'};await ai.ask(db,a,{message:'Elimina tutto',consent:true});assert.equal((await snapshot(db,a)).clients.length,1);
  intent={action:'draft_quote',clientName:'Casa Fittizia',title:'Pulizia',lines:[{description:'Pulizia',quantity:200,unitPrice:2500,vat:2200}]};
@@ -35,7 +35,7 @@ test('AI: isolamento, conferma esplicita, nessun dato DB al provider e duplicati
  assert(results.every(r=>r.quoteId===results[0].quoteId));const state=await snapshot(db,a);assert.equal(state.quotes.length,1);assert.equal(state.quotes[0].total,6100);assert.equal(state.quotes[0].status,'draft');assert.equal(state.audit.filter(r=>r.action==='quote').length,1);
  time+=16*60000;await assert.rejects(ai.confirm(db,a,{token:draft.proposal.token,confirm:true}),e=>e.status===404);
  const offline=createAssistant({settings:aiSettings({}),fetcher:()=>{throw Error('Nessuna rete attesa');}});assert.deepEqual((await offline.ask(db,a,{quick:'overdue_invoices'})).rows,[]);
- await assert.rejects(offline.ask(db,a,{message:'Ciao',consent:true}),e=>e.status===503);
+ assert.match((await offline.ask(db,a,{message:'Raccontami una storia'})).text,/OpenRouter gratuito configurato/i);
  }finally{await db.close()}
 });
 test('AI: errori provider e risposta malformata non eseguono scritture',async()=>{
@@ -43,8 +43,48 @@ test('AI: errori provider e risposta malformata non eseguono scritture',async()=
  const actor=await provision(db,{slug:'ai-errors',name:'Test',email:'e@example.com',password:'Password-test-2026!'});
  for(const response of [{ok:false,status:429},{ok:true,json:async()=>({choices:[{message:{content:'non json'}}]})}]){
  const ai=createAssistant({settings:aiSettings({OPENROUTER_API_KEY:'fake'}),fetcher:async()=>response});
- await assert.rejects(ai.ask(db,actor,{message:'ciao',consent:true}),e=>[502,503].includes(e.status));
+ await assert.rejects(ai.ask(db,actor,{message:'Raccontami una storia'}),e=>[502,503].includes(e.status));
  assert.equal((await snapshot(db,actor)).quotes.length,0);
  }
+ }finally{await db.close()}
+});
+
+test('AI: riepilogo contestuale usa solo dati server-side senza inviarli al provider',async()=>{
+ const db=await connectStore();await migrate(db);try{
+  const actor=await provision(db,{slug:'ai-context',name:'Contesto',email:'context@example.com',password:'Password-test-2026!'});
+  const clientResult=await mutate(db,actor,'client',{name:'Cliente Contestuale',email:'private@example.com'},'ctx-client');
+  const clientId=clientResult.value.id;
+  const ai=createAssistant({settings:aiSettings({}),fetcher:()=>{throw Error('Il provider non deve essere chiamato');}});
+  const result=await ai.ask(db,actor,{quick:'context_summary',context:{page:'Clienti',clientId}});
+  assert.match(result.text,/Cliente Contestuale/);
+  assert(result.rows.some(x=>x.includes('lavori aperti')));
+ }finally{await db.close()}
+});
+
+test('AI: small talk locale e fallback pulito senza OpenRouter',async()=>{
+ const db=await connectStore();await migrate(db);try{
+  const actor=await provision(db,{slug:'ai-smalltalk',name:'Smalltalk',email:'smalltalk@example.com',password:'Password-test-2026!'});
+  const ai=createAssistant({settings:aiSettings({}),fetcher:()=>{throw Error('Provider non atteso');}});
+  assert.match((await ai.ask(db,actor,{message:'come ti chiami?'})).text,/luviqAI/);
+  assert.match((await ai.ask(db,actor,{message:'ciao'})).text,/assistente operativo/i);
+  assert.match((await ai.ask(db,actor,{message:'cosa puoi fare?'})).text,/lavori scaduti/i);
+  assert.match((await ai.ask(db,actor,{message:'raccontami una barzelletta'})).text,/OpenRouter gratuito configurato/i);
+ }finally{await db.close()}
+});
+
+test('AI: risposta libera usa OpenRouter con ZDR e senza consenso per messaggio',async()=>{
+ const db=await connectStore();await migrate(db);try{
+  const actor=await provision(db,{slug:'ai-chat',name:'Chat',email:'chat@example.com',password:'Password-test-2026!'});
+  let sent;
+  const ai=createAssistant({settings:aiSettings({OPENROUTER_API_KEY:'fake'}),fetcher:async(url,options)=>{
+   sent=JSON.parse(options.body);
+   return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify({action:'chat',reply:'Certo, possiamo parlarne.'})}}]})};
+  }});
+  const result=await ai.ask(db,actor,{message:'Parliamo di organizzazione del lavoro',history:[{role:'user',content:'Prima domanda'},{role:'assistant',content:'Prima risposta'}]});
+  assert.equal(result.text,'Certo, possiamo parlarne.');
+  assert.equal(result.provider,true);
+  assert.equal(sent.provider.data_collection,'deny');
+  assert.equal(sent.provider.zdr,true);
+  assert(sent.messages.some(m=>m.role==='assistant'&&m.content==='Prima risposta'));
  }finally{await db.close()}
 });

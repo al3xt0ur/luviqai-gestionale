@@ -19,7 +19,7 @@ const next:Record<Job['status'],Job['status'][]>={
   cancelled:[]
 };
 
-export function Jobs({items,clients,quotes,packages,interventions,session,onSaved,onNewIntervention}:{items:Job[];clients:Client[];quotes:Quote[];packages:Package[];interventions:Intervention[];session:Session;onSaved:()=>Promise<void>;onNewIntervention:(job:Job)=>void}){
+export function Jobs({items,clients,quotes,packages,interventions,session,onSaved,onNewIntervention,onNavigate}:{items:Job[];clients:Client[];quotes:Quote[];packages:Package[];interventions:Intervention[];session:Session;onSaved:()=>Promise<void>;onNewIntervention:(job:Job)=>void;onNavigate?:(page:string)=>void}){
   const [modal,setModal]=useState<any>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const accepted=useMemo(()=>quotes.filter(q=>q.status==='accepted'&&!items.some(j=>j.quoteId===q.id)),[quotes,items]);
   const clientName=(id:number)=>clients.find(c=>c.id===id)?.name||'Cliente';
@@ -46,38 +46,48 @@ export function Jobs({items,clients,quotes,packages,interventions,session,onSave
           reason:data.reason
         },session.csrf,session.user.tenantId);
       }
-      setModal(null);setNotice('Commessa aggiornata.');await onSaved();
+      setModal(null);setNotice('Lavoro aggiornato.');await onSaved();
     }catch(e:any){setError(e.message)}finally{setBusy(false)}
   }
 
   function createFromQuote(q:Quote){
     const doc=typeof q.document==='string'?JSON.parse(q.document):q.document;
-    setModal({kind:'edit',prefill:{clientId:q.clientId,quoteId:q.id,title:doc?.title||`Commessa da ${q.number}`}});
+    setModal({kind:'edit',prefill:{clientId:q.clientId,quoteId:q.id,title:doc?.title||`Lavoro da ${q.number}`}});
   }
 
   return <div>
     {notice&&<div className="alert success">{notice}<button className="text" onClick={()=>setNotice('')}>×</button></div>}
     {accepted.length>0&&<section className="settings-card">
-      <div className="row"><div><h2>Preventivi accettati da trasformare in commessa</h2><p>Apri il lavoro operativo senza perdere il collegamento al documento commerciale.</p></div></div>
+      <div className="row"><div><h2>Preventivi accettati da trasformare in lavoro</h2><p>Apri il lavoro operativo senza perdere il collegamento al documento commerciale.</p></div></div>
       <div className="table-wrap"><table><thead><tr><th>Preventivo</th><th>Cliente</th><th>Totale</th><th></th></tr></thead><tbody>
-        {accepted.map(q=><tr key={q.id}><td><strong>{q.number}</strong></td><td>{clientName(q.clientId)}</td><td>{new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(q.total/100)}</td><td><button onClick={()=>createFromQuote(q)}>Crea commessa</button></td></tr>)}
+        {accepted.map(q=><tr key={q.id}><td><strong>{q.number}</strong></td><td>{clientName(q.clientId)}</td><td>{new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(q.total/100)}</td><td><button onClick={()=>createFromQuote(q)}>Crea lavoro</button></td></tr>)}
       </tbody></table></div>
     </section>}
 
-    <div className="section-title"><h2>Commesse</h2><button onClick={()=>setModal({kind:'edit'})}>＋ Nuova commessa</button></div>
-    {items.length?<div className="table-wrap"><table><thead><tr><th>Commessa</th><th>Cliente</th><th>Collegamenti</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>
+    <div className="section-title"><h2>Lavori</h2><button onClick={()=>setModal({kind:'edit'})}>＋ Nuovo lavoro</button></div>
+    {items.length?<div className="table-wrap"><table><thead><tr><th>Lavoro</th><th>Cliente</th><th>Collegamenti</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>
       {items.map(j=>{
         const count=interventions.filter(i=>i.jobId===j.id).length;
-        return <tr key={j.id}><td><strong>{j.title}</strong><span>#{j.id}{j.description?` · ${j.description}`:''}</span></td><td>{clientName(j.clientId)}</td><td>{j.quoteId?<span>Preventivo #{j.quoteId}</span>:null}{j.packageId?<span>Pacchetto #{j.packageId}</span>:null}<small>{count} interventi</small></td><td>{j.dueDate?new Date(j.dueDate+'T12:00:00').toLocaleDateString('it-IT'):'—'}</td><td><span className={'badge '+(j.status==='active'?'approved':j.status==='cancelled'?'cancelled':j.status==='completed'?'approved':'planned')}>{statusLabel[j.status]}</span></td><td><div className="actions">
-          {['draft','planned'].includes(j.status)&&<button className="secondary" onClick={()=>setModal({kind:'edit',item:j})}>Modifica</button>}
-          {!['completed','cancelled'].includes(j.status)&&<button className="secondary" onClick={()=>onNewIntervention(j)}>＋ Intervento</button>}
-          {next[j.status].map(status=><button key={status} className={status==='cancelled'?'text danger':''} onClick={()=>setModal({kind:'status',item:j,status})}>{status==='planned'?'Pianifica':status==='active'?'Avvia':status==='completed'?'Completa':'Annulla'}</button>)}
+        const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(new Date());
+        const overdue=!!j.dueDate&&j.dueDate<today&&!['completed','cancelled'].includes(j.status);
+        const overdueDays=overdue?Math.max(1,Math.floor((new Date(today+'T12:00:00').getTime()-new Date(j.dueDate+'T12:00:00').getTime())/86400000)):0;
+        const primary=next[j.status].find(status=>status!=='cancelled');
+        return <tr key={j.id}><td><strong>{j.title}</strong><span>#{j.id}{j.description?` · ${j.description}`:''}</span></td><td>{clientName(j.clientId)}</td><td>{j.quoteId?<span>Preventivo #{j.quoteId}</span>:null}{j.packageId?<span>Pacchetto #{j.packageId}</span>:null}<small>{count} interventi</small></td><td>{j.dueDate?<div className={overdue?'due-date overdue':'due-date'}><span>{new Date(j.dueDate+'T12:00:00').toLocaleDateString('it-IT')}</span>{overdue&&<b>Scaduto da {overdueDays} {overdueDays===1?'giorno':'giorni'}</b>}</div>:'—'}</td><td><span className={'badge '+(j.status==='active'?'approved':j.status==='cancelled'?'cancelled':j.status==='completed'?'approved':'planned')}>{statusLabel[j.status]}</span></td><td><div className="job-actions">
+          {primary&&<button onClick={()=>setModal({kind:'status',item:j,status:primary})}>{primary==='planned'?'Pianifica →':primary==='active'?'Avvia →':'Completa →'}</button>}
+          {j.status==='completed'&&onNavigate&&<button onClick={()=>onNavigate('Fatture')}>Crea fattura →</button>}
+          <details className="action-menu"><summary aria-label="Altre azioni">⋯</summary><div>
+            {['draft','planned'].includes(j.status)&&<button onClick={()=>setModal({kind:'edit',item:j})}>Modifica</button>}
+            {!['completed','cancelled'].includes(j.status)&&<button onClick={()=>onNewIntervention(j)}>＋ Intervento</button>}
+            {next[j.status].includes('cancelled')&&<button className="danger" onClick={()=>setModal({kind:'status',item:j,status:'cancelled'})}>Annulla</button>}
+            {j.status==='completed'&&<span>Nessun’altra azione</span>}
+            {j.status==='cancelled'&&<span>Lavoro annullato</span>}
+          </div></details>
         </div></td></tr>
       })}
-    </tbody></table></div>:<div className="empty"><span>◇</span><p>Nessuna commessa. Puoi crearne una manualmente o partire da un preventivo accettato.</p></div>}
+    </tbody></table></div>:<div className="empty"><span>◇</span><p>Nessun lavoro. Puoi crearne uno manualmente o partire da un preventivo accettato.</p></div>}
 
     {modal&&<div className="overlay" onClick={e=>{if(e.target===e.currentTarget&&!busy)setModal(null)}}><section role="dialog" aria-modal="true" className="modal">
-      <div className="row"><h2>{modal.kind==='edit'?(modal.item?'Modifica commessa':'Nuova commessa'):'Aggiorna stato commessa'}</h2><button className="text" disabled={busy} onClick={()=>setModal(null)}>×</button></div>
+      <div className="row"><h2>{modal.kind==='edit'?(modal.item?'Modifica lavoro':'Nuovo lavoro'):'Aggiorna stato lavoro'}</h2><button className="text" disabled={busy} onClick={()=>setModal(null)}>×</button></div>
       <form onSubmit={save}>
         {modal.kind==='edit'?<JobFields item={modal.item} prefill={modal.prefill} clients={clients} quotes={quotes} packages={packages}/>:<>
           <p><strong>{modal.item.title}</strong></p>
@@ -102,6 +112,6 @@ function JobFields({item,prefill,clients,quotes,packages}:{item?:Job;prefill?:an
     <label>Titolo *<input name="title" required maxLength={200} defaultValue={item?.title||prefill?.title||''}/></label>
     <label>Descrizione<textarea name="description" maxLength={3000} defaultValue={item?.description||''}/></label>
     <label>Scadenza prevista<input name="dueDate" type="date" defaultValue={item?.dueDate||''}/></label>
-    <p className="help">Il pacchetto è opzionale. Senza pacchetto, la commessa può comunque contenere interventi e verrà gestita come lavoro a forfait.</p>
+    <p className="help">Il pacchetto è opzionale. Senza pacchetto, il lavoro può comunque contenere interventi e verrà gestito a forfait.</p>
   </>
 }
