@@ -1,6 +1,6 @@
-# Assistente AI · prima versione
+# Assistente AI · modalità conversazionale
 
-Il widget «Chiedi a luviqAI», in basso a destra nelle sezioni aziendali, è riservato a responsabili e amministratori dentro un'impresa. Le tre consultazioni rapide sono deterministiche e funzionano senza chiave: pacchetti pagati con saldo ≤ 5 ore, fatture emesse scadute e interventi da approvare. Il testo libero usa OpenRouter per riconoscere l'intenzione, cercare clienti per nome e preparare bozze di preventivo.
+Il widget «Chiedi a luviqAI», in basso a destra nelle sezioni aziendali, è riservato a responsabili e amministratori dentro un'impresa. Le consultazioni operative note vengono risolte dal backend senza chiamare un modello esterno. Le richieste generali e conversazionali usano OpenRouter. Il modello può inoltre riconoscere azioni gestionali consentite, come cercare clienti o preparare una proposta di preventivo, ma non può eseguire direttamente modifiche distruttive, pagamenti, approvazioni o invii.
 
 ## Attivazione
 
@@ -15,15 +15,15 @@ Riavviare il backend dopo la modifica. Il router gratuito è il valore iniziale;
 
 ## Dati e comportamento
 
-Al provider vengono trasmessi soltanto istruzioni fisse e testo dell'ultimo messaggio, dopo consenso nell'interfaccia. Non inviare informazioni riservate: anche nomi o dettagli scritti nel messaggio arrivano al provider. Per la fase iniziale usare clienti fittizi. Non vengono trasmessi database, risultati, contatti, credenziali, documenti o cronologia delle conversazioni. La richiesta imposta `provider.data_collection=deny`; può ridurre i provider disponibili. La politica del fornitore va comunque verificata prima di usare dati reali.
+Le domande operative riconosciute localmente vengono elaborate sul server LuviqAI e non richiedono OpenRouter. Le richieste libere vengono inviate a OpenRouter insieme a una breve cronologia limitata alle sole parti conversazionali necessarie a mantenere il filo. I risultati estratti dal database non vengono inseriti nella cronologia inviata al modello.
 
-Il backend interpreta soltanto un elenco chiuso di azioni: niente SQL, comandi, URL scelti dal modello, invii email, pagamenti o approvazioni automatiche. Il contesto aziendale deriva dalla sessione, con controlli di ruolo, CSRF e isolamento già presenti. Il testo del modello non viene presentato come risposta libera: i risultati sono costruiti dal server sui dati autorizzati.
+Le chiamate OpenRouter impostano `provider.data_collection=deny` e `provider.zdr=true`. Questo restringe il routing agli endpoint compatibili con le protezioni richieste; se nessun endpoint gratuito compatibile è disponibile, la richiesta può fallire invece di degradare verso un provider meno restrittivo. OpenRouter può comunque conservare metadati tecnici della richiesta.
 
-Esempio: «Prepara un preventivo per Casa Aurora: 2 ore di pulizia a 25 euro/ora, IVA 22%». Si devono specificare quantità, prezzo e aliquota; verificare sempre l'anteprima perché il modello può interpretarli male. Data odierna e validità di 30 giorni vengono proposte esplicitamente. La conferma salva una bozza, modificabile da Preventivi, senza inviarla. Il dominio ricalcola gli importi e ricontrolla il cliente al salvataggio.
+Non è prevista una checkbox di consenso per ogni messaggio. L'interfaccia mostra una nota persistente sul possibile uso di OpenRouter per le richieste libere e l'informativa privacy descrive il trattamento. La corretta base giuridica e gli accordi con i fornitori devono essere verificati prima dell'uso con dati reali o di terzi.
 
-Le proposte durano 15 minuti, appartengono a utente e azienda e sono conservate solo nella memoria del processo. Un riavvio le invalida: prepararle nuovamente. Doppie conferme concorrenti usano la stessa chiave idempotente nel database, producendo una sola bozza e una voce di storico con autore e motivazione AI. La cronologia della chat è temporanea: resta disponibile cambiando sezione o riducendo il widget, ma si perde ricaricando la pagina, uscendo dall’account o cambiando impresa. Su telefono il pannello occupa lo schermo; il tasto Riduci chat riporta al gestionale. Invio spedisce il messaggio, Maiusc+Invio aggiunge una riga, Esc riduce il pannello. Ogni messaggio è indipendente; non sono supportati riferimenti a messaggi precedenti.
+Le azioni gestionali restano su un elenco chiuso. Il modello non riceve accesso SQL o accesso diretto al database e non può inviare email, registrare pagamenti o approvare interventi. Le operazioni di scrittura consentite, come una bozza di preventivo, richiedono una proposta esplicita e una conferma dell'utente; il dominio ricalcola e valida i dati al salvataggio.
 
-Limite applicativo di 5 richieste AI/minuto/account, timeout 25 secondi, risultati limitati ai primi 50 con conteggio totale. Limiti e proposte sono locali al processo: un servizio con più repliche richiederà un archivio condiviso. Nessuna tabella o migrazione Supabase aggiunta in questa versione.
+La cronologia della chat è temporanea e resta nel browser durante la sessione; si perde ricaricando la pagina o uscendo. Il backend applica un limite di 5 richieste OpenRouter/minuto/account e timeout di 25 secondi. Le consultazioni locali non consumano tale limite.
 
 ## Verifica
 
