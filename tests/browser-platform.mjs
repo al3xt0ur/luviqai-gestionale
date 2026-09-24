@@ -1,4 +1,5 @@
 import '../scripts/test-isolation.mjs';
+import {randomBytes} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {mkdtempSync,mkdirSync,rmSync} from 'node:fs';
@@ -14,28 +15,42 @@ const dir=mkdtempSync(join(tmpdir(),'luviq-platform-ui-')),password='Browser-pla
 const store=await connectStore({path:join(dir,'pg')});await migrate(store);
 for(const slug of ['prima','seconda'])await provision(store,{slug,name:'Impresa '+slug,email:'manager@example.com',password});
 await provisionAdmins(store,[{name:'Admin Uno',email:'one@example.com',password},{name:'Admin Due',email:'two@example.com',password}]);await store.close();
-const child=spawn(process.execPath,['server/index.mjs'],{env:{...process.env,PORT:'3138',PGLITE_PATH:join(dir,'pg'),BOOTSTRAP_DEMO:'0',MAIL_MODE:'preview',PUBLIC_APP_URL:'http://localhost:3138'},stdio:['ignore','pipe','pipe']});let browser;
+const child=spawn(process.execPath,['server/index.mjs'],{env:{...process.env,MFA_SECRET_KEY:randomBytes(32).toString('base64url'),PORT:'3138',PGLITE_PATH:join(dir,'pg'),BOOTSTRAP_DEMO:'0',MAIL_MODE:'preview',PUBLIC_APP_URL:'http://localhost:3138'},stdio:['ignore','pipe','pipe']});let browser;
 try{
   await once(child.stdout,'data');browser=await chromium.launch({channel:'chrome',headless:true});
   const page=await browser.newPage({viewport:{width:1440,height:1000},locale:'it-IT'});page.setDefaultTimeout(10000);
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  const login=async(p,slug,email)=>{await p.goto('http://localhost:3138');await p.getByLabel('Codice azienda').fill(slug);await p.getByLabel('Email',{exact:true}).fill(email);await p.getByLabel('Password',{exact:true}).fill(password);await p.getByRole('button',{name:'Accedi',exact:true}).click();};
-  await login(page,'luviqai','one@example.com');await page.getByRole('heading',{name:'Tutte le imprese, un unico pannello.'}).waitFor();
+  const login=async(p,slug,email)=>{await p.goto('http://localhost:3138');const form=p.locator('form').filter({has:p.getByRole('button',{name:'Accedi',exact:true})});await form.getByLabel('Codice azienda').fill(slug);await form.getByLabel('Email',{exact:true}).fill(email);await form.getByLabel('Password',{exact:true}).fill(password);await form.getByRole('button',{name:'Accedi',exact:true}).click();};
+  await login(page,'luviqai','one@example.com');await page.getByRole('heading',{name:'Home piattaforma',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'Richiede attenzione',exact:true}).waitFor();assert.equal(await page.getByRole('navigation').getByRole('button').count(),5);
   mkdirSync('test-results',{recursive:true});await page.screenshot({path:'test-results/piattaforma-admin.png',fullPage:true});
-  const first=page.locator('.package').filter({hasText:'Impresa prima'});
-  await first.getByRole('button',{name:'Apri impresa'}).click();await page.locator('.platform-context').filter({hasText:'Impresa prima'}).waitFor();
+  await page.getByRole('button',{name:'Il mio profilo',exact:true}).click();
+  await page.getByLabel('Nome',{exact:true}).fill('Admin Uno');await page.getByRole('button',{name:'Salva profilo',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Il mio profilo',exact:true}).click();await page.getByRole('heading',{name:'Sessioni e dispositivi',exact:true}).waitFor();await page.getByText('Questa sessione',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Configura MFA',exact:true}).click();await page.getByRole('img',{name:'QR code per configurare la verifica in due passaggi'}).waitFor();await page.getByLabel('Codice a 6 cifre').waitFor();await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});
+  await page.getByRole('navigation').getByRole('button',{name:'Aziende',exact:true}).click();
+  await page.getByLabel('Cerca azienda').fill('nessuna');await page.getByRole('heading',{name:'Nessuna azienda trovata'}).waitFor();await page.getByRole('button',{name:'Azzera filtri'}).click();
+  await page.getByLabel('Stato',{exact:true}).selectOption('suspended');await page.getByRole('heading',{name:'Nessuna azienda trovata'}).waitFor();await page.getByRole('button',{name:'Azzera filtri'}).click();
+  const first=page.locator('.pa-company').filter({hasText:'Impresa prima'});
+  await first.getByRole('button',{name:'Apri azienda'}).click();await page.locator('.platform-context').filter({hasText:'Impresa prima'}).waitFor();
   const oldSession=await(await page.request.get('http://localhost:3138/api/me')).json();
   await page.locator('nav').getByRole('button',{name:/Clienti/}).click();await page.getByRole('button',{name:'Nuovo cliente'}).click();await page.getByLabel('Nome cliente').fill('Creato da amministratore');await page.getByRole('button',{name:'Salva',exact:true}).click();await page.getByRole('heading',{name:'Creato da amministratore',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Tutte le imprese'}).click();await page.locator('.package').filter({hasText:'Impresa seconda'}).getByRole('button',{name:'Apri impresa'}).click();await page.locator('.platform-context').filter({hasText:'Impresa seconda'}).waitFor();
+  await page.getByRole('button',{name:'Tutte le imprese'}).click();await page.locator('.pa-company').filter({hasText:'Impresa seconda'}).getByRole('button',{name:'Apri azienda'}).click();await page.locator('.platform-context').filter({hasText:'Impresa seconda'}).waitFor();
   const currentSession=await(await page.request.get('http://localhost:3138/api/me')).json();
   const bad=await page.request.post('http://localhost:3138/api/client',{headers:{'X-CSRF-Token':oldSession.csrf,'X-Tenant-Context':oldSession.user.tenantId,'Idempotency-Key':'old-tab'},data:{name:'Errore scheda'}});assert.equal(bad.status(),403);
   const wrong=await page.request.post('http://localhost:3138/api/client',{headers:{'X-CSRF-Token':currentSession.csrf,'X-Tenant-Context':oldSession.user.tenantId,'Idempotency-Key':'wrong-context'},data:{name:'Errore azienda'}});assert.equal(wrong.status(),409);
   assert.equal((await page.request.get('http://localhost:3138/api/export')).status(),409);
   await page.locator('nav').getByRole('button',{name:/Clienti/}).click();assert.equal(await page.locator('.client-card').count(),0);
   await page.getByRole('button',{name:'Tutte le imprese'}).click();await page.getByRole('button',{name:'Nuova impresa'}).click();await page.getByLabel('Nome impresa').fill('Terza impresa');await page.getByLabel('Codice di accesso').fill('terza');await page.getByLabel('Nome responsabile').fill('Nuovo responsabile');await page.getByLabel('Email responsabile').fill('new@example.com');await page.getByLabel('Password iniziale').fill(password);await page.getByRole('button',{name:'Conferma operazione'}).click();await page.getByRole('heading',{name:'Terza impresa'}).waitFor();
-  await first.getByRole('button',{name:'Sospendi',exact:true}).click();await page.getByLabel('Motivazione').fill('Prova amministrativa');await page.getByRole('button',{name:'Conferma operazione'}).click();await first.getByText('Sospesa',{exact:true}).waitFor();await first.getByRole('button',{name:'Riattiva',exact:true}).click();await page.getByLabel('Motivazione').fill('Prova conclusa');await page.getByRole('button',{name:'Conferma operazione'}).click();await first.getByText('Attiva',{exact:true}).waitFor();
+  await first.getByLabel('Altre azioni per Impresa prima').click();await first.getByRole('button',{name:'Sospendi',exact:true}).click();await page.getByLabel('Motivazione').fill('Prova amministrativa');await page.getByRole('button',{name:'Conferma operazione'}).click();await first.getByText('Sospesa',{exact:true}).waitFor();await first.getByLabel('Altre azioni per Impresa prima').click();await first.getByRole('button',{name:'Riattiva',exact:true}).click();await page.getByLabel('Motivazione').fill('Prova conclusa');await page.getByRole('button',{name:'Conferma operazione'}).click();await first.getByText('Attiva',{exact:true}).waitFor();
   const manager=await browser.newPage();await login(manager,'prima','manager@example.com');await manager.getByRole('heading',{name:'Panoramica',exact:true}).waitFor();assert.equal((await manager.request.get('http://localhost:3138/api/platform/state')).status(),403);
-  const secondAdmin=await browser.newPage();await login(secondAdmin,'luviqai','two@example.com');await secondAdmin.getByRole('heading',{name:'Tutte le imprese, un unico pannello.'}).waitFor();assert.equal(await secondAdmin.locator('.package').count(),3);
-  await page.setViewportSize({width:390,height:844});await page.screenshot({path:'test-results/piattaforma-mobile.png',fullPage:true});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);
+  const secondAdmin=await browser.newPage();await login(secondAdmin,'luviqai','two@example.com');await secondAdmin.getByRole('heading',{name:'Home piattaforma',exact:true}).waitFor();await secondAdmin.getByRole('navigation').getByRole('button',{name:'Aziende',exact:true}).click();await secondAdmin.getByRole('heading',{name:'Terza impresa',exact:true}).waitFor();assert.equal(await secondAdmin.locator('.pa-company').count(),3);
+  await first.getByLabel('Altre azioni per Impresa prima').click();await first.getByRole('button',{name:'Account',exact:true}).click();await page.getByRole('heading',{name:'Account aziendali',exact:true}).waitFor();await page.getByRole('button',{name:'Chiudi',exact:true}).click();
+  for(const name of ['Accessi','Registro','Monitoraggio']){await page.getByRole('navigation').getByRole('button',{name,exact:true}).click();await page.getByRole('heading',{name,exact:true}).waitFor();}
+  await page.getByRole('heading',{name:'Backup',exact:true}).waitFor();await page.getByText('Gestione esterna',{exact:true}).waitFor();
+  const monitoring=await(await page.request.get('http://localhost:3138/api/platform/monitoring')).json();assert.equal(monitoring.deployment.environment,'local');assert.equal(monitoring.deployment.version,'1.0.0');assert.equal(monitoring.backup.status,'Gestione esterna');
+  await page.screenshot({path:'test-results/piattaforma-monitoraggio.png',fullPage:true});
+  await page.reload();await page.getByRole('heading',{name:'Monitoraggio',exact:true}).waitFor();
+  await page.setViewportSize({width:390,height:844});await page.screenshot({path:'test-results/piattaforma-mobile.png',fullPage:true});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));for(const name of ['Home piattaforma','Aziende','Accessi','Monitoraggio','Registro']){await page.getByRole('navigation').getByRole('button',{name,exact:true}).click();assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),name+' mobile overflow');}await page.getByRole('navigation').getByRole('button',{name:'Home piattaforma',exact:true}).click();await page.screenshot({path:'test-results/piattaforma-mobile.png',fullPage:true});assert.deepEqual(errors,[]);
   console.log('Browser piattaforma OK: due admin, aziende, creazione cliente, cambio contesto sicuro, nuova impresa, sospensione/riattivazione e divieto API ai responsabili.');
 }finally{if(browser)await browser.close();const exited=once(child,'exit');child.kill();await exited;rmSync(dir,{recursive:true,force:true});}

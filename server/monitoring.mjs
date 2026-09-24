@@ -1,7 +1,22 @@
+import {readFileSync} from 'node:fs';
+import {readdir,stat} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {one,rows} from './storage.mjs';
 import {fail} from './domain.mjs';
 
+const version=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
+async function backupStatus(){
+ const enabled=process.env.BOOTSTRAP_DEMO!=='0';
+ if(!enabled)return {status:'Gestione esterna',description:'Backup automatici incorporati disattivati. Verifica copie e ripristini nel servizio di backup esterno.'};
+ try{
+  const directory=new URL('../data/backups/',import.meta.url);
+  const files=(await readdir(directory)).filter(name=>/^backup-.*\.json$/.test(name));
+  const times=await Promise.all(files.map(async name=>(await stat(new URL(name,directory))).mtimeMs));
+  const latest=Math.max(...times);
+  if(!Number.isFinite(latest))return {status:'Nessuna copia rilevata',description:'Backup incorporati abilitati; nessun file rilevato.'};
+  return {status:Date.now()-latest>26*3600000?'Copia da verificare':'Copia locale presente',description:'Ultimo file: '+new Date(latest).toISOString()+'. Presenza del file rilevata; integrità e ripristino non verificati.'};
+ }catch{return {status:'Non verificato',description:'Impossibile leggere lo stato delle copie locali.'};}
+}
 let lastPrune=0;
 const now=()=>new Date().toISOString();
 const normalizePath=value=>String(value||'')
@@ -39,6 +54,8 @@ export async function platformMonitoring(store,actor,{mail,storeKind}={}){
  ]);
  return {
   checkedAt:now(),
+  deployment:{environment:process.env.APP_ENV||(process.env.NODE_ENV==='production'?'production':'local'),version,commit:(process.env.RENDER_GIT_COMMIT||process.env.GIT_COMMIT||'').slice(0,40)||null},
+  backup:await backupStatus(),
   uptimeSeconds:Math.floor(process.uptime()),
   database:{ok:db?.ok===1,kind:storeKind||'PostgreSQL'},
   email:{ok:['resend','smtp','preview'].includes(mail?.mode),mode:mail?.mode||'unknown',from:mail?.from||''},
