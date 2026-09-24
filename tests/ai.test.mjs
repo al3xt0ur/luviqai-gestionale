@@ -48,3 +48,15 @@ test('AI: errori provider e risposta malformata non eseguono scritture',async()=
  }
  }finally{await db.close()}
 });
+
+test('AI: riepilogo contestuale usa solo dati server-side senza inviarli al provider',async()=>{
+ const db=await connectStore();await migrate(db);try{
+  const actor=await provision(db,{slug:'ai-context',name:'Contesto',email:'context@example.com',password:'Password-test-2026!'});
+  const clientResult=await mutate(db,actor,'client',{name:'Cliente Contestuale',email:'private@example.com'},'ctx-client');
+  const clientId=clientResult.value.id;
+  const ai=createAssistant({settings:aiSettings({}),fetcher:()=>{throw Error('Il provider non deve essere chiamato');}});
+  const result=await ai.ask(db,actor,{quick:'context_summary',context:{page:'Clienti',clientId}});
+  assert.match(result.text,/Cliente Contestuale/);
+  assert(result.rows.some(x=>x.includes('lavori aperti')));
+ }finally{await db.close()}
+});
