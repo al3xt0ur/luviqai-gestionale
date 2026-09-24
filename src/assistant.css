@@ -16,3 +16,5 @@
 @media print{.chat-widget{display:none!important}}
 
 .chat-shortcuts{display:flex;gap:6px;padding:8px 18px;background:#f7faf9;flex-shrink:0;border-top:1px solid #e5ece8}.chat-shortcuts button{font-size:10px;padding:6px 10px;border-radius:20px}
+
+.chat-consent-note{font-size:9px;line-height:1.45;color:#7b8e84;margin:10px 2px 8px}
