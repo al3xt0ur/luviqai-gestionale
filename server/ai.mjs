@@ -27,6 +27,9 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
  function localIntent(message){
   const q=String(message||'').toLocaleLowerCase('it').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9%€\s]/g,' ').replace(/\s+/g,' ').trim();
   if(!q)return null;
+  if(/^(ciao|salve|buongiorno|buonasera|hey|ehi)(\s|$)/.test(q))return {action:'greeting'};
+  if(/come ti chiami|qual e il tuo nome|chi sei/.test(q))return {action:'identity'};
+  if(/cosa (sai|puoi) fare|come (mi )?puoi aiutare|aiuto|help/.test(q))return {action:'capabilities'};
   if(/(lavor|commess).*(scad|ritard)|((scad|ritard).*(lavor|commess))/.test(q))return {action:'overdue_jobs'};
   if(/(lavor|commess).*(bozz)|((bozz).*(lavor|commess))/.test(q))return {action:'draft_jobs'};
   if(/fattur.*scad|scad.*fattur/.test(q))return {action:'overdue_invoices'};
@@ -56,6 +59,7 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
    const message=required(input.message,2000);
    intent=localIntent(message);
    if(!intent){
+    if(!settings.enabled)return {text:'Posso già rispondere alle domande operative del gestionale. Per una conversazione libera devo avere OpenRouter gratuito configurato nello staging.'};
     if(input.consent!==true)return {text:'Per questa richiesta devo usare OpenRouter gratuito. Spunta il consenso e invia di nuovo il messaggio.',requiresConsent:true};
     const key=actor.tenantId+':'+actor.id,bucket=limits.get(key)||{count:0,until:now()+60000};
     if(bucket.count>=5)fail('Massimo 5 richieste AI al minuto per account.',429);
@@ -104,6 +108,9 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
   }
   let result;
   switch(intent.action){
+   case 'greeting':return {text:'Ciao! Sono luviqAI, l’assistente operativo del gestionale. Posso aiutarti a leggere attività, scadenze, lavori, interventi, fatture e preventivi.'};
+   case 'identity':return {text:'Mi chiamo luviqAI. Sono l’assistente integrato nel gestionale LuviqAI.'};
+   case 'capabilities':return {text:'Posso riepilogare la pagina che stai guardando, mostrarti lavori scaduti o in bozza, interventi di oggi, fatture scadute, ore residue e attività da approvare. Posso anche preparare una bozza di preventivo; le azioni che modificano dati restano sempre sotto il tuo controllo.'};
    case 'low_balance':result=state.packages.filter(p=>p.paid&&p.remaining<=300).map(p=>`${client(p.clientId)} · ${p.tier} #${p.id}: ${(p.remaining/60).toLocaleString('it-IT')} h residue, ${(p.free/60).toLocaleString('it-IT')} h libere`);break;
    case 'overdue_invoices':result=state.invoices.filter(i=>i.status==='issued'&&i.dueDate<today()).map(i=>`${i.number} · ${client(i.clientId)} · ${euro(i.total)} · scadenza ${i.dueDate}`);break;
    case 'pending_jobs':result=state.interventions.filter(i=>i.status==='pending').map(i=>`Intervento #${i.id} · ${client(i.clientId)} · ${i.service} · ${i.duration} minuti`);break;
