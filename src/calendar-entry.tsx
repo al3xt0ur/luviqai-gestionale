@@ -23,6 +23,4 @@ function CalendarPortal({close}:{close:()=>void}){
 
 function openCalendar(){if(document.getElementById('calendar-portal-root'))return;const node=document.createElement('div');node.id='calendar-portal-root';document.body.appendChild(node);const close=()=>{root?.unmount();root=null;node.remove()};root=createRoot(node);root.render(<CalendarPortal close={close}/>)}
 
-function installButton(){const nav=document.querySelector('aside nav');if(!nav||nav.querySelector('[data-luviq-calendar]'))return;const button=document.createElement('button');button.dataset.luviqCalendar='1';button.innerHTML='<span>▣</span>Calendario';button.addEventListener('click',openCalendar);const intervention=[...nav.querySelectorAll('button')].find(b=>b.textContent?.includes('Interventi'));if(intervention?.nextSibling)nav.insertBefore(button,intervention.nextSibling);else nav.appendChild(button)}
-
-const observer=new MutationObserver(()=>installButton());observer.observe(document.body,{childList:true,subtree:true});installButton();
+window.addEventListener('luviq:open-calendar',openCalendar);
