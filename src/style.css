@@ -64,3 +64,7 @@
   .execution-footer>*{width:100%;justify-content:center;text-align:center}
   .execution-footer button:last-child{grid-column:1/-1;padding:13px}
 }
+
+/* Operator maps + availability emphasis */
+.operator-address{display:inline-flex;align-items:center;gap:8px;color:#365f59;font-weight:600;text-decoration:none;border-bottom:1px dotted #6b9187;padding-bottom:2px}.operator-address span{font-size:10px;color:#6d8884;font-weight:500}.operator-card.imminent{border-color:#d9c99c;background:#fffdf7}.operator-card.available{border-color:#87c2a6;box-shadow:0 0 0 2px #e1f2e9 inset}.soon-pill{font-size:10px;color:#876b28;background:#fff1c8;border-radius:20px;padding:5px 8px}.operator-cta .available-action{font-size:15px;padding:13px 18px;box-shadow:0 6px 16px rgba(34,104,80,.14)}
+@media(max-width:760px){.operator-address{display:flex;justify-content:space-between;gap:10px}.operator-address span{margin-left:auto}.operator-card.available .operator-cta .available-action{padding:15px;font-size:16px}}
