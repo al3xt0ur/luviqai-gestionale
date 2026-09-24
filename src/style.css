@@ -35,3 +35,32 @@
 /* UX quote/invoice detail toolbar */
 .detail-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:18px}.detail-primary{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.quotes-page .client-card .due-date{margin:8px 0}.quotes-page .client-card .due-date b{display:block}
 @media(max-width:760px){.detail-toolbar{align-items:stretch;flex-direction:column}.detail-primary{width:100%}.detail-primary>button{flex:1}.detail-primary .action-menu{margin-left:auto}}
+
+/* Operator mobile workspace */
+.operator-home{max-width:980px}.operator-summary{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding:20px 22px;border:1px solid #dce7e3;border-radius:14px;background:#fff;margin-bottom:18px}.operator-summary h2{margin:6px 0}.operator-date{font-size:12px;color:#5f7b78;text-transform:capitalize}.operator-cards{display:grid;gap:14px}.operator-card{display:grid;grid-template-columns:110px 1fr;gap:18px;background:#fff;border:1px solid #dce7e3;border-radius:14px;padding:18px}.operator-card.running{border-color:#8cc8ad;box-shadow:0 0 0 2px #dff1e8 inset}.operator-time{display:flex;flex-direction:column;justify-content:flex-start;align-items:flex-start;padding-right:16px;border-right:1px solid #e6eeeb}.operator-time strong{font-size:30px;line-height:1}.operator-time span{margin-top:8px;font-size:11px;color:#728989;text-transform:capitalize}.operator-card-body h2{margin:10px 0 4px;font-size:21px}.operator-card-body h3{margin:0 0 6px;font-size:15px}.operator-address{font-weight:600;color:#365f59}.operator-cta{margin-top:14px}.operator-cta button{min-width:200px}.live-pill{font-size:10px;color:#2f7255;background:#e1f3e9;border-radius:20px;padding:5px 8px}.execution-footer{position:sticky;bottom:-20px;background:#fff;padding-top:12px;border-top:1px solid #e3ebe8;z-index:3}
+@media(max-width:760px){
+  body:has(.operator-home) aside{padding-bottom:8px}
+  body:has(.operator-home) nav{margin-top:10px}
+  body:has(.operator-home) .topbar>span{display:none}
+  body:has(.operator-home) .topbar{justify-content:flex-end}
+  body:has(.operator-home) .content{padding:16px 14px 24px}
+  body:has(.operator-home) header{margin-bottom:16px}
+  body:has(.operator-home) header h1{font-size:24px}
+  body:has(.operator-home) header p{font-size:12px}
+  .operator-summary{padding:16px;flex-direction:column;gap:6px}
+  .operator-summary h2{font-size:20px}
+  .operator-card{grid-template-columns:72px 1fr;padding:14px;gap:12px}
+  .operator-time{padding-right:10px}
+  .operator-time strong{font-size:24px}
+  .operator-card-body h2{font-size:18px}
+  .operator-card-body h3{font-size:14px}
+  .operator-cta button{width:100%;min-width:0;padding:13px}
+  .execution-modal{position:fixed;inset:0;max-width:none;max-height:none;width:100%;height:100%;border-radius:0;padding:16px;overflow:auto}
+  .execution-modal>.row{position:sticky;top:-16px;background:#fff;z-index:4;padding:12px 0;border-bottom:1px solid #e5ece9}
+  .execution-modal .settings-card{padding:16px;margin:12px 0}
+  .execution-modal .form-grid{grid-template-columns:1fr}
+  .signature-pad{height:150px}
+  .execution-footer{bottom:-16px;margin:18px -16px -16px;padding:12px 16px;display:grid;grid-template-columns:1fr 1fr;gap:8px;box-shadow:0 -8px 24px rgba(26,55,58,.08)}
+  .execution-footer>*{width:100%;justify-content:center;text-align:center}
+  .execution-footer button:last-child{grid-column:1/-1;padding:13px}
+}
