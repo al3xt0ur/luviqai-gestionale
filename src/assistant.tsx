@@ -28,7 +28,7 @@ export function Assistant({session,onSaved,context}:{session:Session;onSaved:()=
  <form className="chat-compose" onSubmit={e=>{e.preventDefault();void ask()}}>
  {status&&!status.enabled&&<p className="chat-hint">Puoi comunque fare domande operative sui dati del gestionale. Per richieste più libere serve OpenRouter gratuito configurato.</p>}
  <div className="chat-input"><textarea ref={composer} aria-label="La tua richiesta" disabled={busy} maxLength={2000} rows={2} required value={message} onChange={e=>setMessage(e.target.value)} placeholder="Scrivi la tua richiesta…" onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!busy&&message.trim())void ask()}}}/><button className="chat-send" aria-label="Invia richiesta" disabled={busy||!message.trim()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7M12 5v14"/></svg></button></div>
- <label className="chat-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>Consento l’invio delle mie domande a OpenRouter quando la richiesta non può essere risolta direttamente dal gestionale. I dati estratti dal database non vengono inviati.</span></label>
+ {status?.enabled&&<label className="chat-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>Consento l’invio delle mie domande a OpenRouter quando la richiesta non può essere risolta direttamente dal gestionale. I dati estratti dal database non vengono inviati.</span></label>}
  {error&&<div className="chat-error" role="alert">{error}</div>}
  <div className="chat-footnote"><span>Controlla le proposte prima di confermare.</span><span>luviqAI ✳</span></div>
  </form></section>}
