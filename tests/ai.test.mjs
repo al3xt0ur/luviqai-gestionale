@@ -61,3 +61,14 @@ test('AI: riepilogo contestuale usa solo dati server-side senza inviarli al prov
   assert(result.rows.some(x=>x.includes('lavori aperti')));
  }finally{await db.close()}
 });
+
+test('AI: small talk locale e fallback pulito senza OpenRouter',async()=>{
+ const db=await connectStore();await migrate(db);try{
+  const actor=await provision(db,{slug:'ai-smalltalk',name:'Smalltalk',email:'smalltalk@example.com',password:'Password-test-2026!'});
+  const ai=createAssistant({settings:aiSettings({}),fetcher:()=>{throw Error('Provider non atteso');}});
+  assert.match((await ai.ask(db,actor,{message:'come ti chiami?'})).text,/luviqAI/);
+  assert.match((await ai.ask(db,actor,{message:'ciao'})).text,/assistente operativo/i);
+  assert.match((await ai.ask(db,actor,{message:'cosa puoi fare?'})).text,/lavori scaduti/i);
+  assert.match((await ai.ask(db,actor,{message:'raccontami una barzelletta'})).text,/OpenRouter gratuito configurato/i);
+ }finally{await db.close()}
+});
