@@ -6,6 +6,8 @@ const instructions=`Sei l'interprete italiano del gestionale luviqAI. Restituisc
 {"action":"low_balance"} pacchetti pagati con saldo <=5 ore;
 {"action":"overdue_invoices"} fatture scadute;
 {"action":"pending_jobs"} interventi da approvare;
+{"action":"today_work"} interventi pianificati oggi;
+{"action":"context_summary"} riepilogo operativo della pagina corrente, costruito dal server;
 {"action":"clients","name":"testo da cercare"} ricerca clienti;
 {"action":"draft_quote","clientName":"nome esatto","title":"oggetto","lines":[{"description":"servizio","quantity":100,"unitPrice":1000,"vat":2200,"discount":0}]} preparare preventivo SOLO se quantità, prezzo e IVA sono esplicitamente forniti. Quantità in centesimi di unità, prezzo in centesimi di euro, IVA e sconto in centesimi di punto percentuale. Sconto assente=0. Nessun invio email, pagamento, modifica o approvazione è disponibile.
 Se manca un dato o la richiesta non è supportata: {"action":"help"}. Non usare altri campi, SQL o comandi. Ogni messaggio è indipendente.`;
@@ -34,7 +36,7 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
   const state=await snapshot(store,actor);
   if(!state.company.active)fail('Azienda sospesa.',403);
   let intent;
-  if(input.quick){if(!['low_balance','overdue_invoices','pending_jobs'].includes(input.quick))fail('Consultazione non supportata.');intent={action:input.quick};}
+  if(input.quick){if(!['low_balance','overdue_invoices','pending_jobs','today_work','context_summary'].includes(input.quick))fail('Consultazione non supportata.');intent={action:input.quick};}
   else{
    const message=required(input.message,2000);
    if(input.consent!==true)fail('Conferma l’invio del testo a OpenRouter.');
@@ -44,11 +46,51 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
   }
   if(!intent||typeof intent!=='object'||Array.isArray(intent))fail('Risposta AI non valida.',502);
   const client=id=>state.clients.find(c=>c.id===id)?.name||'Cliente';
+  const allowedPages=new Set(['Panoramica','Clienti','Preventivi','Commesse','Interventi','Fatture','Pacchetti ore']);
+  const context=input.context&&typeof input.context==='object'&&!Array.isArray(input.context)?input.context:{};
+  const contextPage=allowedPages.has(context.page)?context.page:'Panoramica';
+  const contextClientId=Number.isInteger(Number(context.clientId))?Number(context.clientId):null;
+  function contextSummary(){
+    const todayKey=today();
+    if(contextPage==='Clienti'&&contextClientId){
+      const c=state.clients.find(x=>x.id===contextClientId&&!x.archived);
+      if(!c)return {text:'Il cliente selezionato non è disponibile.',rows:[]};
+      const jobs=state.jobs.filter(j=>j.clientId===c.id&&!['completed','cancelled'].includes(j.status));
+      const overdue=state.invoices.filter(i=>i.clientId===c.id&&i.status==='issued'&&i.dueDate<todayKey);
+      const upcoming=state.interventions.filter(i=>i.clientId===c.id&&i.status==='planned'&&new Date(i.date)>new Date()).sort((x,y)=>x.date.localeCompare(y.date));
+      const free=state.packages.filter(p=>p.clientId===c.id&&p.paid).reduce((sum,p)=>sum+p.free,0);
+      const accepted=state.quotes.filter(q=>q.clientId===c.id&&q.status==='accepted'&&!state.jobs.some(j=>j.quoteId===q.id));
+      const rows=[`${jobs.length} lavori aperti`,`${upcoming.length} interventi pianificati`,`${(free/60).toLocaleString('it-IT')} h disponibili`];
+      if(overdue.length)rows.unshift(`${overdue.length} fatture scadute`);
+      if(accepted.length)rows.unshift(`${accepted.length} preventivi accettati da trasformare in lavoro`);
+      return {text:`Riepilogo operativo di ${c.name}.`,rows};
+    }
+    if(contextPage==='Fatture'){
+      const open=state.invoices.filter(i=>i.status==='issued'),overdue=open.filter(i=>i.dueDate<todayKey);
+      return {text:'Situazione incassi aggiornata.',rows:[`${open.length} fatture da incassare`,`${overdue.length} fatture scadute`,`${euro(open.reduce((s,i)=>s+i.total,0))} da incassare`]};
+    }
+    if(contextPage==='Preventivi'){
+      const sent=state.quotes.filter(q=>q.status==='sent'),expired=sent.filter(q=>q.validUntil<todayKey),accepted=state.quotes.filter(q=>q.status==='accepted'&&!state.jobs.some(j=>j.quoteId===q.id));
+      return {text:'Situazione commerciale aggiornata.',rows:[`${sent.length} preventivi inviati in attesa`,`${expired.length} preventivi inviati oltre validità`,`${accepted.length} preventivi accettati da trasformare in lavoro`]};
+    }
+    if(contextPage==='Commesse'){
+      const open=state.jobs.filter(j=>!['completed','cancelled'].includes(j.status)),overdue=open.filter(j=>j.dueDate&&j.dueDate<todayKey);
+      return {text:'Situazione lavori aggiornata.',rows:[`${open.length} lavori aperti`,`${overdue.length} lavori oltre scadenza`,`${open.filter(j=>j.status==='draft').length} lavori ancora in bozza`]};
+    }
+    if(contextPage==='Interventi'){
+      const day=state.interventions.filter(i=>i.status!=='cancelled'&&new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(new Date(i.date))===todayKey),pending=state.interventions.filter(i=>i.status==='pending');
+      return {text:'Agenda operativa aggiornata.',rows:[`${day.length} interventi oggi`,`${pending.length} interventi da approvare`]};
+    }
+    const overdue=state.invoices.filter(i=>i.status==='issued'&&i.dueDate<todayKey),pending=state.interventions.filter(i=>i.status==='pending'),accepted=state.quotes.filter(q=>q.status==='accepted'&&!state.jobs.some(j=>j.quoteId===q.id)),low=state.packages.filter(p=>p.paid&&p.remaining<=300);
+    return {text:'Queste sono le priorità operative che vedo adesso.',rows:[`${overdue.length} fatture scadute`,`${pending.length} interventi da approvare`,`${accepted.length} preventivi accettati da trasformare in lavoro`,`${low.length} pacchetti con 5 ore o meno`]};
+  }
   let result;
   switch(intent.action){
    case 'low_balance':result=state.packages.filter(p=>p.paid&&p.remaining<=300).map(p=>`${client(p.clientId)} · ${p.tier} #${p.id}: ${(p.remaining/60).toLocaleString('it-IT')} h residue, ${(p.free/60).toLocaleString('it-IT')} h libere`);break;
    case 'overdue_invoices':result=state.invoices.filter(i=>i.status==='issued'&&i.dueDate<today()).map(i=>`${i.number} · ${client(i.clientId)} · ${euro(i.total)} · scadenza ${i.dueDate}`);break;
    case 'pending_jobs':result=state.interventions.filter(i=>i.status==='pending').map(i=>`Intervento #${i.id} · ${client(i.clientId)} · ${i.service} · ${i.duration} minuti`);break;
+   case 'today_work':result=state.interventions.filter(i=>i.status!=='cancelled'&&new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(new Date(i.date))===today()).sort((x,y)=>x.date.localeCompare(y.date)).map(i=>`${new Date(i.date).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})} · ${client(i.clientId)} · ${i.service} · ${i.status}`);break;
+   case 'context_summary':return contextSummary();
    case 'clients':{const name=required(intent.name,200).toLocaleLowerCase('it');result=state.clients.filter(c=>!c.archived&&c.name.toLocaleLowerCase('it').includes(name)).map(c=>`#${c.id} · ${c.name}`);break;}
    case 'draft_quote':{
     const name=required(intent.clientName,300);const matches=state.clients.filter(c=>!c.archived&&c.name.toLocaleLowerCase('it')===name.toLocaleLowerCase('it'));
@@ -60,7 +102,7 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
     proposals.set(token,{tenantId:actor.tenantId,userId:actor.id,payload,expires:now()+15*60000});
     return {text:'Controlla cliente, prezzi e IVA. La conferma salva soltanto una bozza: potrai modificarla nella sezione Preventivi. Validità proposta: 30 giorni.',proposal:{token,client:matches[0].name,...payload,...calculated}};
    }
-   default:return {text:'Posso cercare clienti, mostrare pacchetti con saldo ≤ 5 ore, fatture scadute e interventi da approvare, oppure preparare una bozza di preventivo. Per la bozza indica nome esatto del cliente, servizio, quantità, prezzo unitario netto e IVA. Esempio: “Prepara un preventivo per Casa Aurora: 2 ore di pulizia a 25 euro/ora, IVA 22%”. Ogni messaggio deve contenere la richiesta completa.'};
+   default:return {text:'Posso riepilogare la pagina che stai guardando, mostrare il lavoro di oggi, cercare clienti, mostrare pacchetti con saldo ≤ 5 ore, fatture scadute e interventi da approvare, oppure preparare una bozza di preventivo. Per la bozza indica nome esatto del cliente, servizio, quantità, prezzo unitario netto e IVA. Esempio: “Prepara un preventivo per Casa Aurora: 2 ore di pulizia a 25 euro/ora, IVA 22%”. Ogni messaggio deve contenere la richiesta completa.'};
   }
   return {text:result.length?`${result.length} risultati aggiornati. Mostro i primi ${Math.min(50,result.length)}.`:'Nessun risultato per questa consultazione.',rows:result.slice(0,50)};
  }
