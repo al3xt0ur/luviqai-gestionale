@@ -6,11 +6,13 @@ const instructions=`Sei l'interprete italiano del gestionale luviqAI. Restituisc
 {"action":"low_balance"} pacchetti pagati con saldo <=5 ore;
 {"action":"overdue_invoices"} fatture scadute;
 {"action":"pending_jobs"} interventi da approvare;
+{"action":"overdue_jobs"} lavori aperti oltre la scadenza;
+{"action":"draft_jobs"} lavori ancora in bozza;
 {"action":"today_work"} interventi pianificati oggi;
 {"action":"context_summary"} riepilogo operativo della pagina corrente, costruito dal server;
 {"action":"clients","name":"testo da cercare"} ricerca clienti;
 {"action":"draft_quote","clientName":"nome esatto","title":"oggetto","lines":[{"description":"servizio","quantity":100,"unitPrice":1000,"vat":2200,"discount":0}]} preparare preventivo SOLO se quantità, prezzo e IVA sono esplicitamente forniti. Quantità in centesimi di unità, prezzo in centesimi di euro, IVA e sconto in centesimi di punto percentuale. Sconto assente=0. Nessun invio email, pagamento, modifica o approvazione è disponibile.
-Se manca un dato o la richiesta non è supportata: {"action":"help"}. Non usare altri campi, SQL o comandi. Ogni messaggio è indipendente.`;
+Se manca un dato o la richiesta non è supportata: {"action":"help"}. Non usare altri campi, SQL o comandi. Puoi usare le precedenti domande dell'utente solo per capire riferimenti conversazionali come "quello", "e gli altri?" o "quale?". Non inventare mai dati mancanti, soprattutto prezzi, quantità, IVA o clienti.`;
 function manager(actor){if(!['manager','platform_admin'].includes(actor.role))fail('Assistente riservato a responsabili e amministratori.',403);}
 export function aiSettings(env=process.env){
  const model=env.OPENROUTER_MODEL||'openrouter/free';
@@ -22,10 +24,23 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
  const proposals=new Map(),limits=new Map();
  function cleanup(){for(const [k,v]of proposals)if(v.expires<now())proposals.delete(k);for(const[k,v]of limits)if(v.until<now())limits.delete(k);}
  const status=actor=>{manager(actor);return {enabled:settings.enabled,model:settings.model,mode:'OpenRouter gratuito',reason:settings.enabled?'':!settings.free?'Configurare esclusivamente un modello gratuito.':'Manca OPENROUTER_API_KEY nel file .env. Le consultazioni rapide sono già disponibili.'};};
- async function interpret(message){
-  if(!settings.enabled)fail('Configura una chiave OpenRouter e un modello gratuito per usare il testo libero.',503);
+ function localIntent(message){
+  const q=String(message||'').toLocaleLowerCase('it').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9%€\s]/g,' ').replace(/\s+/g,' ').trim();
+  if(!q)return null;
+  if(/(lavor|commess).*(scad|ritard)|((scad|ritard).*(lavor|commess))/.test(q))return {action:'overdue_jobs'};
+  if(/(lavor|commess).*(bozz)|((bozz).*(lavor|commess))/.test(q))return {action:'draft_jobs'};
+  if(/fattur.*scad|scad.*fattur/.test(q))return {action:'overdue_invoices'};
+  if(/intervent.*approv|approv.*intervent/.test(q))return {action:'pending_jobs'};
+  if(/(lavor|intervent).*(oggi)|oggi.*(lavor|intervent)/.test(q))return {action:'today_work'};
+  if(/(ore.*residu|saldo.*ore|pacchett.*ore|ore.*pacchett)/.test(q))return {action:'low_balance'};
+  if(/(attenzion|priorit|situazion|questa pagina|qui).*(qui|pagina|oggi)?/.test(q))return {action:'context_summary'};
+  return null;
+ }
+ async function interpret(message,history=[]){
+  if(!settings.enabled)fail('OpenRouter gratuito non è configurato su questo ambiente.',503);
   let response;
-  try{response=await fetcher('https://openrouter.ai/api/v1/chat/completions',{method:'POST',signal:AbortSignal.timeout(25000),headers:{Authorization:`Bearer ${settings.key}`,'Content-Type':'application/json'},body:JSON.stringify({model:settings.model,temperature:0,max_tokens:1200,provider:{data_collection:'deny'},messages:[{role:'system',content:instructions},{role:'user',content:message}]})});}
+  const previous=Array.isArray(history)?history.filter(x=>typeof x==='string').slice(-6).map(content=>({role:'user',content:content.slice(0,1000)})):[];
+  try{response=await fetcher('https://openrouter.ai/api/v1/chat/completions',{method:'POST',signal:AbortSignal.timeout(25000),headers:{Authorization:`Bearer ${settings.key}`,'Content-Type':'application/json'},body:JSON.stringify({model:settings.model,temperature:0,max_tokens:1200,provider:{data_collection:'deny'},messages:[{role:'system',content:instructions},...previous,{role:'user',content:message}]})});}
   catch{fail('Il servizio AI non risponde. Riprova tra poco.',503);}
   if(!response.ok)fail(response.status===429?'Limite gratuito raggiunto. Riprova più tardi.':'OpenRouter non disponibile: verifica chiave, modello e impostazioni privacy.',503);
   try{const data=await response.json();const content=data.choices?.[0]?.message?.content;if(typeof content!=='string'||content.length>12000)throw Error();return JSON.parse(content.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));}
@@ -39,10 +54,13 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
   if(input.quick){if(!['low_balance','overdue_invoices','pending_jobs','today_work','context_summary'].includes(input.quick))fail('Consultazione non supportata.');intent={action:input.quick};}
   else{
    const message=required(input.message,2000);
-   if(input.consent!==true)fail('Conferma l’invio del testo a OpenRouter.');
-   const key=actor.tenantId+':'+actor.id,bucket=limits.get(key)||{count:0,until:now()+60000};
-   if(bucket.count>=5)fail('Massimo 5 richieste AI al minuto per account.',429);
-   bucket.count++;limits.set(key,bucket);intent=await interpret(message);
+   intent=localIntent(message);
+   if(!intent){
+    if(input.consent!==true)return {text:'Per questa richiesta devo usare OpenRouter gratuito. Spunta il consenso e invia di nuovo il messaggio.',requiresConsent:true};
+    const key=actor.tenantId+':'+actor.id,bucket=limits.get(key)||{count:0,until:now()+60000};
+    if(bucket.count>=5)fail('Massimo 5 richieste AI al minuto per account.',429);
+    bucket.count++;limits.set(key,bucket);intent=await interpret(message,input.history);
+   }
   }
   if(!intent||typeof intent!=='object'||Array.isArray(intent))fail('Risposta AI non valida.',502);
   const client=id=>state.clients.find(c=>c.id===id)?.name||'Cliente';
@@ -89,6 +107,8 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
    case 'low_balance':result=state.packages.filter(p=>p.paid&&p.remaining<=300).map(p=>`${client(p.clientId)} · ${p.tier} #${p.id}: ${(p.remaining/60).toLocaleString('it-IT')} h residue, ${(p.free/60).toLocaleString('it-IT')} h libere`);break;
    case 'overdue_invoices':result=state.invoices.filter(i=>i.status==='issued'&&i.dueDate<today()).map(i=>`${i.number} · ${client(i.clientId)} · ${euro(i.total)} · scadenza ${i.dueDate}`);break;
    case 'pending_jobs':result=state.interventions.filter(i=>i.status==='pending').map(i=>`Intervento #${i.id} · ${client(i.clientId)} · ${i.service} · ${i.duration} minuti`);break;
+   case 'overdue_jobs':result=state.jobs.filter(j=>!['completed','cancelled'].includes(j.status)&&j.dueDate&&j.dueDate<today()).map(j=>`Lavoro #${j.id} · ${client(j.clientId)} · ${j.title||'Senza titolo'} · scadenza ${j.dueDate} · stato ${j.status}`);break;
+   case 'draft_jobs':result=state.jobs.filter(j=>j.status==='draft').map(j=>`Lavoro #${j.id} · ${client(j.clientId)} · ${j.title||'Senza titolo'}${j.dueDate?` · scadenza ${j.dueDate}`:''}`);break;
    case 'today_work':result=state.interventions.filter(i=>i.status!=='cancelled'&&new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(new Date(i.date))===today()).sort((x,y)=>x.date.localeCompare(y.date)).map(i=>`${new Date(i.date).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})} · ${client(i.clientId)} · ${i.service} · ${i.status}`);break;
    case 'context_summary':return contextSummary();
    case 'clients':{const name=required(intent.name,200).toLocaleLowerCase('it');result=state.clients.filter(c=>!c.archived&&c.name.toLocaleLowerCase('it').includes(name)).map(c=>`#${c.id} · ${c.name}`);break;}
@@ -102,7 +122,7 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
     proposals.set(token,{tenantId:actor.tenantId,userId:actor.id,payload,expires:now()+15*60000});
     return {text:'Controlla cliente, prezzi e IVA. La conferma salva soltanto una bozza: potrai modificarla nella sezione Preventivi. Validità proposta: 30 giorni.',proposal:{token,client:matches[0].name,...payload,...calculated}};
    }
-   default:return {text:'Posso riepilogare la pagina che stai guardando, mostrare il lavoro di oggi, cercare clienti, mostrare pacchetti con saldo ≤ 5 ore, fatture scadute e interventi da approvare, oppure preparare una bozza di preventivo. Per la bozza indica nome esatto del cliente, servizio, quantità, prezzo unitario netto e IVA. Esempio: “Prepara un preventivo per Casa Aurora: 2 ore di pulizia a 25 euro/ora, IVA 22%”. Ogni messaggio deve contenere la richiesta completa.'};
+   default:return {text:'Posso conversare sulle attività del gestionale: riepilogare la pagina, mostrarti lavori scaduti o in bozza, lavoro di oggi, clienti, pacchetti con saldo basso, fatture scadute e interventi da approvare, oppure preparare una bozza di preventivo. Per la bozza indica nome esatto del cliente, servizio, quantità, prezzo unitario netto e IVA. Esempio: “Prepara un preventivo per Casa Aurora: 2 ore di pulizia a 25 euro/ora, IVA 22%”. Ogni messaggio deve contenere la richiesta completa.'};
   }
   return {text:result.length?`${result.length} risultati aggiornati. Mostro i primi ${Math.min(50,result.length)}.`:'Nessun risultato per questa consultazione.',rows:result.slice(0,50)};
  }
