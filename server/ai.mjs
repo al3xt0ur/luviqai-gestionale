@@ -66,7 +66,6 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
    intent=localIntent(message);
    if(!intent){
     if(!settings.enabled)return {text:'Posso già rispondere alle domande operative del gestionale. Per una conversazione libera devo avere OpenRouter gratuito configurato nello staging.'};
-    if(input.consent!==true)return {text:'Per questa richiesta devo usare OpenRouter gratuito. Spunta il consenso e invia di nuovo il messaggio.',requiresConsent:true};
     const key=actor.tenantId+':'+actor.id,bucket=limits.get(key)||{count:0,until:now()+60000};
     if(bucket.count>=5)fail('Massimo 5 richieste AI al minuto per account.',429);
     bucket.count++;limits.set(key,bucket);intent=await interpret(message,input.history);
