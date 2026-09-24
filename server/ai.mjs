@@ -11,8 +11,9 @@ const instructions=`Sei l'interprete italiano del gestionale luviqAI. Restituisc
 {"action":"today_work"} interventi pianificati oggi;
 {"action":"context_summary"} riepilogo operativo della pagina corrente, costruito dal server;
 {"action":"clients","name":"testo da cercare"} ricerca clienti;
-{"action":"draft_quote","clientName":"nome esatto","title":"oggetto","lines":[{"description":"servizio","quantity":100,"unitPrice":1000,"vat":2200,"discount":0}]} preparare preventivo SOLO se quantità, prezzo e IVA sono esplicitamente forniti. Quantità in centesimi di unità, prezzo in centesimi di euro, IVA e sconto in centesimi di punto percentuale. Sconto assente=0. Nessun invio email, pagamento, modifica o approvazione è disponibile.
-Se manca un dato o la richiesta non è supportata: {"action":"help"}. Non usare altri campi, SQL o comandi. Puoi usare le precedenti domande dell'utente solo per capire riferimenti conversazionali come "quello", "e gli altri?" o "quale?". Non inventare mai dati mancanti, soprattutto prezzi, quantità, IVA o clienti.`;
+{"action":"draft_quote","clientName":"nome esatto","title":"oggetto","lines":[{"description":"servizio","quantity":100,"unitPrice":1000,"vat":2200,"discount":0}]} preparare preventivo SOLO se quantità, prezzo e IVA sono esplicitamente forniti. Quantità in centesimi di unità, prezzo in centesimi di euro, IVA e sconto in centesimi di punto percentuale. Sconto assente=0.
+{"action":"chat","reply":"risposta"} per qualsiasi domanda generale, conversazione, spiegazione o richiesta che non richieda un'azione gestionale.
+Nessun invio email, pagamento, modifica o approvazione è disponibile. Non usare altri campi, SQL o comandi. Puoi usare la cronologia conversazionale fornita per mantenere il filo. Non inventare mai dati gestionali mancanti, soprattutto prezzi, quantità, IVA, clienti, scadenze o stati. Per domande generali rispondi normalmente in italiano, in modo utile e discorsivo.`;
 function manager(actor){if(!['manager','platform_admin'].includes(actor.role))fail('Assistente riservato a responsabili e amministratori.',403);}
 export function aiSettings(env=process.env){
  const model=env.OPENROUTER_MODEL||'openrouter/free';
@@ -42,8 +43,13 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
  async function interpret(message,history=[]){
   if(!settings.enabled)fail('OpenRouter gratuito non è configurato su questo ambiente.',503);
   let response;
-  const previous=Array.isArray(history)?history.filter(x=>typeof x==='string').slice(-6).map(content=>({role:'user',content:content.slice(0,1000)})):[];
-  try{response=await fetcher('https://openrouter.ai/api/v1/chat/completions',{method:'POST',signal:AbortSignal.timeout(25000),headers:{Authorization:`Bearer ${settings.key}`,'Content-Type':'application/json'},body:JSON.stringify({model:settings.model,temperature:0,max_tokens:1200,provider:{data_collection:'deny'},messages:[{role:'system',content:instructions},...previous,{role:'user',content:message}]})});}
+  const previous=Array.isArray(history)?history.slice(-8).flatMap(x=>{
+   if(typeof x==='string')return [{role:'user',content:x.slice(0,1000)}];
+   if(!x||typeof x!=='object')return [];
+   const role=x.role==='assistant'?'assistant':'user',content=typeof x.content==='string'?x.content.slice(0,1500):'';
+   return content?[{role,content}]:[];
+  }):[];
+  try{response=await fetcher('https://openrouter.ai/api/v1/chat/completions',{method:'POST',signal:AbortSignal.timeout(25000),headers:{Authorization:`Bearer ${settings.key}`,'Content-Type':'application/json'},body:JSON.stringify({model:settings.model,temperature:0,max_tokens:1200,provider:{data_collection:'deny',zdr:true},messages:[{role:'system',content:instructions},...previous,{role:'user',content:message}]})});}
   catch{fail('Il servizio AI non risponde. Riprova tra poco.',503);}
   if(!response.ok)fail(response.status===429?'Limite gratuito raggiunto. Riprova più tardi.':'OpenRouter non disponibile: verifica chiave, modello e impostazioni privacy.',503);
   try{const data=await response.json();const content=data.choices?.[0]?.message?.content;if(typeof content!=='string'||content.length>12000)throw Error();return JSON.parse(content.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));}
@@ -108,7 +114,8 @@ export function createAssistant({settings=aiSettings(),fetcher=fetch,now=Date.no
   }
   let result;
   switch(intent.action){
-   case 'greeting':return {text:'Ciao! Sono luviqAI, l’assistente operativo del gestionale. Posso aiutarti a leggere attività, scadenze, lavori, interventi, fatture e preventivi.'};
+   case 'chat':{const reply=required(intent.reply,6000);return {text:reply,provider:true};}
+   case 'greeting':return {text:'Ciao! Sono luviqAI, l’assistente operativo del gestionale. Posso aiutarti a leggere attività, scadenze, lavori, interventi, fatture e preventivi.',provider:false};
    case 'identity':return {text:'Mi chiamo luviqAI. Sono l’assistente integrato nel gestionale LuviqAI.'};
    case 'capabilities':return {text:'Posso riepilogare la pagina che stai guardando, mostrarti lavori scaduti o in bozza, interventi di oggi, fatture scadute, ore residue e attività da approvare. Posso anche preparare una bozza di preventivo; le azioni che modificano dati restano sempre sotto il tuo controllo.'};
    case 'low_balance':result=state.packages.filter(p=>p.paid&&p.remaining<=300).map(p=>`${client(p.clientId)} · ${p.tier} #${p.id}: ${(p.remaining/60).toLocaleString('it-IT')} h residue, ${(p.free/60).toLocaleString('it-IT')} h libere`);break;
