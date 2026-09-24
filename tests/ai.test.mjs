@@ -21,9 +21,10 @@ test('AI: isolamento, conferma esplicita, nessun dato DB al provider e duplicati
  let time=Date.now(),intent={action:'clients',name:'Casa'},sent,calls=0;
  const ai=createAssistant({settings:aiSettings({OPENROUTER_API_KEY:'fake-test-key'}),now:()=>time,fetcher:async(url,options)=>{calls++;sent=JSON.parse(options.body);return {ok:true,json:async()=>({choices:[{message:{content:JSON.stringify(intent)}}]})};}});
  await assert.rejects(ai.ask(db,{...a,role:'operator'},{quick:'pending_jobs'}),e=>e.status===403);
- await assert.rejects(ai.ask(db,a,{message:'Cerca Casa'}),/Conferma/);
- const search=await ai.ask(db,a,{message:'Cerca Casa',consent:true});assert.equal(search.rows.length,1);
- assert(!JSON.stringify(sent).includes('secret@example.com'));assert(!JSON.stringify(sent).includes('Solo Altra Azienda'));assert.equal(sent.provider.data_collection,'deny');assert.equal(calls,1);
+ const local=await ai.ask(db,a,{message:'Qual è il lavoro oltre scadenza?'});assert.match(local.text,/Nessun risultato/);assert.equal(calls,0);
+ const consentNeeded=await ai.ask(db,a,{message:'Cerca Casa'});assert.equal(consentNeeded.requiresConsent,true);assert.equal(calls,0);
+ const search=await ai.ask(db,a,{message:'Cerca Casa',consent:true,history:['Prima domanda']});assert.equal(search.rows.length,1);
+ assert(!JSON.stringify(sent).includes('secret@example.com'));assert(!JSON.stringify(sent).includes('Solo Altra Azienda'));assert(JSON.stringify(sent.messages).includes('Prima domanda'));assert.equal(sent.provider.data_collection,'deny');assert.equal(calls,1);
  intent={action:'clients',name:'Solo Altra'};assert.equal((await ai.ask(db,a,{message:'Cerca Solo Altra',consent:true})).rows.length,0);
  intent={action:'sql',sql:'DELETE FROM clients'};await ai.ask(db,a,{message:'Elimina tutto',consent:true});assert.equal((await snapshot(db,a)).clients.length,1);
  intent={action:'draft_quote',clientName:'Casa Fittizia',title:'Pulizia',lines:[{description:'Pulizia',quantity:200,unitPrice:2500,vat:2200}]};
