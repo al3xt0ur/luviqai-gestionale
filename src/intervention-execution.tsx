@@ -11,22 +11,19 @@ const durationLabel=(seconds:number)=>{
   return [h&&String(h).padStart(2,'0'),String(m).padStart(2,'0'),String(s).padStart(2,'0')].filter(Boolean).join(':');
 };
 
-export function InterventionExecution({item,session,onClose,onSaved}:{item:Intervention;session:Session;onClose:()=>void;onSaved:()=>Promise<void>}){
+export function InterventionExecution({item,session,onClose,onSaved,onComplete}:{item:Intervention;session:Session;onClose:()=>void;onSaved:()=>Promise<void>;onComplete?:()=>void}){
   const initial=item.execution||{};
   const [checklist,setChecklist]=useState<ChecklistItem[]>(initial.checklist||[]);
   const [materials,setMaterials]=useState<MaterialItem[]>(initial.materials||[]);
   const [notes,setNotes]=useState(initial.reportNotes||'');
   const [signatureName,setSignatureName]=useState(initial.signatureName||'');
   const [signatureData,setSignatureData]=useState(initial.signatureData||'');
-  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[now,setNow]=useState(Date.now());
+  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[now,setNow]=useState(Date.now()),[timerStartedAt,setTimerStartedAt]=useState<string|null>(initial.timerStartedAt||null),[elapsedSeconds,setElapsedSeconds]=useState(Number(initial.elapsedSeconds||0));
   const [newCheck,setNewCheck]=useState(''),[newMaterial,setNewMaterial]=useState('');
   const canvas=useRef<HTMLCanvasElement|null>(null),drawing=useRef(false);
-  const liveSeconds=useMemo(()=>{
-    const base=Number(initial.elapsedSeconds||0);
-    return initial.timerStartedAt?base+Math.max(0,Math.floor((now-Date.parse(initial.timerStartedAt))/1000)):base;
-  },[initial.elapsedSeconds,initial.timerStartedAt,now]);
+  const liveSeconds=useMemo(()=>timerStartedAt?elapsedSeconds+Math.max(0,Math.floor((now-Date.parse(timerStartedAt))/1000)):elapsedSeconds,[elapsedSeconds,timerStartedAt,now]);
 
-  useEffect(()=>{if(!initial.timerStartedAt)return;const id=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[initial.timerStartedAt]);
+  useEffect(()=>{if(!timerStartedAt)return;const id=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[timerStartedAt]);
   useEffect(()=>{
     const c=canvas.current;if(!c)return;
     const ctx=c.getContext('2d');if(!ctx)return;
@@ -43,9 +40,15 @@ export function InterventionExecution({item,session,onClose,onSaved}:{item:Inter
   function up(e:React.PointerEvent<HTMLCanvasElement>){drawing.current=false;setSignatureData(e.currentTarget.toDataURL('image/png'))}
   function clearSignature(){const c=canvas.current;c?.getContext('2d')?.clearRect(0,0,c.width,c.height);setSignatureData('')}
 
-  async function action(name:string,input:any={}){
+  async function action(name:string,input:any={},close=true){
     setBusy(true);setError('');
-    try{await post(name,{id:item.id,...input},session.csrf,session.user.tenantId);await onSaved();onClose();}
+    try{
+      await post(name,{id:item.id,...input},session.csrf,session.user.tenantId);
+      if(name==='execution-start'){setTimerStartedAt(new Date().toISOString());setNow(Date.now())}
+      if(name==='execution-stop'){setElapsedSeconds(liveSeconds);setTimerStartedAt(null)}
+      await onSaved();
+      if(close)onClose();
+    }
     catch(e:any){setError(e.message)}finally{setBusy(false)}
   }
   async function save(){
@@ -61,7 +64,7 @@ export function InterventionExecution({item,session,onClose,onSaved}:{item:Inter
 
       <section className="settings-card">
         <div className="row"><div><h3>Timer attività</h3><p>Tempo registrato: <strong>{durationLabel(liveSeconds)}</strong></p></div>
-          {initial.timerStartedAt?<button disabled={busy} onClick={()=>action('execution-stop')}>■ Stop</button>:<button disabled={busy||item.status==='cancelled'} onClick={()=>action('execution-start')}>▶ Avvia</button>}
+          {timerStartedAt?<button disabled={busy} onClick={()=>action('execution-stop',{},false)}>■ Ferma timer</button>:<button disabled={busy||item.status==='cancelled'} onClick={()=>action('execution-start',{},false)}>▶ Avvia timer</button>}
         </div>
       </section>
 
@@ -86,10 +89,11 @@ export function InterventionExecution({item,session,onClose,onSaved}:{item:Inter
         <div className="actions"><button type="button" className="secondary" onClick={clearSignature}>Cancella firma</button></div>
       </section>
 
-      <div className="modal-footer">
-        <a className="button secondary" href={'/api/interventions/'+item.id+'/report.pdf?company='+encodeURIComponent(session.user.tenantId)} target="_blank" rel="noreferrer">↓ Rapportino PDF</a>
+      <div className="modal-footer execution-footer">
+        <a className="button secondary" href={'/api/interventions/'+item.id+'/report.pdf?company='+encodeURIComponent(session.user.tenantId)} target="_blank" rel="noreferrer">↓ PDF</a>
         <button className="secondary" disabled={busy} onClick={onClose}>Chiudi</button>
         <button disabled={busy} onClick={save}>{busy?'Salvataggio…':'Salva rapportino'}</button>
+        {item.status==='planned'&&onComplete&&<button disabled={busy||!!timerStartedAt} onClick={onComplete}>{timerStartedAt?'Ferma prima il timer':'Completa intervento →'}</button>}
       </div>
     </section>
   </div>
