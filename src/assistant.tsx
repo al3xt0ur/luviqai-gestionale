@@ -2,18 +2,18 @@ import React,{useEffect,useRef,useState} from 'react';
 import './assistant.css';
 import {Session} from './access';
 const money=(n:number)=>new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(n/100);
-type Reply={text:string;rows?:string[];proposal?:any;quoteId?:number;question?:string;saved?:boolean;requiresConsent?:boolean};
+type Reply={text:string;rows?:string[];proposal?:any;quoteId?:number;question?:string;saved?:boolean;requiresConsent?:boolean;provider?:boolean};
 export function Assistant({session,onSaved,context}:{session:Session;onSaved:()=>Promise<void>;context?:{page?:string;clientId?:number|null}}){
  const[open,setOpen]=useState(false),[details,setDetails]=useState(false);
  const launcher=useRef<HTMLButtonElement>(null),composer=useRef<HTMLTextAreaElement>(null),thread=useRef<HTMLDivElement>(null);
  function close(){setOpen(false);requestAnimationFrame(()=>launcher.current?.focus())}
  useEffect(()=>{if(open)composer.current?.focus()},[open]);
- const[status,setStatus]=useState<any>(null),[message,setMessage]=useState(''),[consent,setConsent]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[replies,setReplies]=useState<Reply[]>([]);
+ const[status,setStatus]=useState<any>(null),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[replies,setReplies]=useState<Reply[]>([]);
  async function request(path:string,input?:any){const r=await fetch('/api/ai/'+path,{method:input?'POST':'GET',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf,'X-Tenant-Context':session.user.tenantId},...(input?{body:JSON.stringify(input)}:{})});const body=await r.json();if(!r.ok)throw Error(body.error||'Assistente non disponibile.');return body;}
  async function load(){try{setStatus(await request('status'));setError('')}catch(e:any){setError(e.message)}}
  useEffect(()=>{if(open)void load()},[open]);
  useEffect(()=>{if(open&&thread.current)thread.current.scrollTop=thread.current.scrollHeight},[replies,busy,open]);
- async function ask(quick?:string){if(busy)return;setBusy(true);setError('');try{const history=replies.map(r=>r.question).filter(Boolean).slice(-6);const result=await request('chat',quick?{quick,context}:{message,consent,context,history});setReplies(v=>[...v.slice(-19),{...result,question:quick?({context_summary:'Cosa richiede attenzione qui?',today_work:'Lavoro di oggi',low_balance:'Pacchetti con saldo basso',overdue_invoices:'Fatture scadute',pending_jobs:'Interventi da approvare'} as any)[quick]:message}]);setMessage('')}catch(e:any){setError(e.message)}finally{setBusy(false)}}
+ async function ask(quick?:string){if(busy)return;setBusy(true);setError('');try{const history=replies.flatMap(r=>r.provider?[{role:'user',content:r.question||''},{role:'assistant',content:r.text||''}]:r.question?[{role:'user',content:r.question}]:[]).slice(-8);const result=await request('chat',quick?{quick,context}:{message,context,history});setReplies(v=>[...v.slice(-19),{...result,question:quick?({context_summary:'Cosa richiede attenzione qui?',today_work:'Lavoro di oggi',low_balance:'Pacchetti con saldo basso',overdue_invoices:'Fatture scadute',pending_jobs:'Interventi da approvare'} as any)[quick]:message}]);setMessage('')}catch(e:any){setError(e.message)}finally{setBusy(false)}}
  async function confirm(token:string){if(busy)return;setBusy(true);setError('');try{const result=await request('confirm',{token,confirm:true});setReplies(v=>v.map(r=>r.proposal?.token===token?{...r,saved:true,text:result.text}:r));await onSaved()}catch(e:any){setError(e.message)}finally{setBusy(false)}}
  return <div className="chat-widget">
  {open&&<section id="luviq-chat" className="chat-panel" role="dialog" aria-label="Assistente luviqAI" onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();close()}}}>
@@ -28,7 +28,7 @@ export function Assistant({session,onSaved,context}:{session:Session;onSaved:()=
  <form className="chat-compose" onSubmit={e=>{e.preventDefault();void ask()}}>
  {status&&!status.enabled&&<p className="chat-hint">Puoi comunque fare domande operative sui dati del gestionale. Per richieste più libere serve OpenRouter gratuito configurato.</p>}
  <div className="chat-input"><textarea ref={composer} aria-label="La tua richiesta" disabled={busy} maxLength={2000} rows={2} required value={message} onChange={e=>setMessage(e.target.value)} placeholder="Scrivi la tua richiesta…" onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();if(!busy&&message.trim())void ask()}}}/><button className="chat-send" aria-label="Invia richiesta" disabled={busy||!message.trim()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7M12 5v14"/></svg></button></div>
- <label className="chat-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>Consento l’invio delle mie domande a OpenRouter quando la richiesta non può essere risolta direttamente dal gestionale. I dati estratti dal database non vengono inviati.</span></label>
+ <p className="chat-consent-note">Le richieste libere possono essere elaborate tramite OpenRouter con protezioni privacy attive. I dati estratti dal gestionale non vengono inviati al modello.</p>
  {error&&<div className="chat-error" role="alert">{error}</div>}
  <div className="chat-footnote"><span>Controlla le proposte prima di confermare.</span><span>luviqAI ✳</span></div>
  </form></section>}
