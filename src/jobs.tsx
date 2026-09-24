@@ -19,7 +19,7 @@ const next:Record<Job['status'],Job['status'][]>={
   cancelled:[]
 };
 
-export function Jobs({items,clients,quotes,packages,interventions,session,onSaved,onNewIntervention}:{items:Job[];clients:Client[];quotes:Quote[];packages:Package[];interventions:Intervention[];session:Session;onSaved:()=>Promise<void>;onNewIntervention:(job:Job)=>void}){
+export function Jobs({items,clients,quotes,packages,interventions,session,onSaved,onNewIntervention,onNavigate}:{items:Job[];clients:Client[];quotes:Quote[];packages:Package[];interventions:Intervention[];session:Session;onSaved:()=>Promise<void>;onNewIntervention:(job:Job)=>void;onNavigate?:(page:string)=>void}){
   const [modal,setModal]=useState<any>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const accepted=useMemo(()=>quotes.filter(q=>q.status==='accepted'&&!items.some(j=>j.quoteId===q.id)),[quotes,items]);
   const clientName=(id:number)=>clients.find(c=>c.id===id)?.name||'Cliente';
@@ -71,7 +71,7 @@ export function Jobs({items,clients,quotes,packages,interventions,session,onSave
         return <tr key={j.id}><td><strong>{j.title}</strong><span>#{j.id}{j.description?` · ${j.description}`:''}</span></td><td>{clientName(j.clientId)}</td><td>{j.quoteId?<span>Preventivo #{j.quoteId}</span>:null}{j.packageId?<span>Pacchetto #{j.packageId}</span>:null}<small>{count} interventi</small></td><td>{j.dueDate?new Date(j.dueDate+'T12:00:00').toLocaleDateString('it-IT'):'—'}</td><td><span className={'badge '+(j.status==='active'?'approved':j.status==='cancelled'?'cancelled':j.status==='completed'?'approved':'planned')}>{statusLabel[j.status]}</span></td><td><div className="actions">
           {['draft','planned'].includes(j.status)&&<button className="secondary" onClick={()=>setModal({kind:'edit',item:j})}>Modifica</button>}
           {!['completed','cancelled'].includes(j.status)&&<button className="secondary" onClick={()=>onNewIntervention(j)}>＋ Intervento</button>}
-          {next[j.status].map(status=><button key={status} className={status==='cancelled'?'text danger':''} onClick={()=>setModal({kind:'status',item:j,status})}>{status==='planned'?'Pianifica':status==='active'?'Avvia':status==='completed'?'Completa':'Annulla'}</button>)}
+          {next[j.status].map(status=><button key={status} className={status==='cancelled'?'text danger':''} onClick={()=>setModal({kind:'status',item:j,status})}>{status==='planned'?'Pianifica':status==='active'?'Avvia':status==='completed'?'Completa':'Annulla'}</button>)}{j.status==='completed'&&onNavigate&&<button onClick={()=>onNavigate('Fatture')}>Crea fattura →</button>}
         </div></td></tr>
       })}
     </tbody></table></div>:<div className="empty"><span>◇</span><p>Nessuna commessa. Puoi crearne una manualmente o partire da un preventivo accettato.</p></div>}
