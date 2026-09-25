@@ -19,7 +19,7 @@ export function required(value, max=300) {
 export const camel = record => Object.fromEntries(Object.entries(record).filter(([k])=>k!=='tenant_id').map(([k,v])=>[k.replace(/_([a-z])/g,(_,c)=>c.toUpperCase()),v]));
 const fields = {
   quotes: ['clientId','number','revision','status','issueDate','validUntil','document','net','tax','total','sourceId','created','updated'],
-  invoices: ['clientId','quoteId','number','revision','status','issueDate','dueDate','document','net','tax','total','payment','paidAt','created','updated'],
+  invoices: ['clientId','jobId','quoteId','number','revision','status','issueDate','dueDate','document','net','tax','total','payment','paidAt','created','updated'],
   clients: ['name','email','phone','address','archived'],
   packages: ['clientId','tier','original','initial','rule','paid','renewedFrom','created','templateId','templateRevision','description'],
   package_templates: ['name','description','minutes','rule','active','revision'],
@@ -282,8 +282,17 @@ export async function mutate(store,actor,action,input,key) {
         const title=required(input.title,200),notes=String(input.notes||'').trim();if(notes.length>2000)fail('Le note possono contenere al massimo 2000 caratteri.');
         let quote=null;
         if(input.quoteId){quote=state.quotes.find(q=>q.id===Number(input.quoteId))||fail('Preventivo non trovato.',404);if(quote.clientId!==clientId||quote.status!=='accepted')fail('La fattura può essere collegata solo a un preventivo accettato dello stesso cliente.');if(state.invoices.some(i=>i.quoteId===quote.id&&i.id!==before?.id&&i.status!=='cancelled'))fail('Esiste già una fattura attiva collegata a questo preventivo.');}
-        const document=JSON.stringify({title,notes,lines,client,company:camel(tenant)});
-        const value={clientId,quoteId:quote?.id||null,issueDate,dueDate,document,net,tax,total,updated:now,revision:before?before.revision+1:1};
+        // An omitted link on an older client must not silently detach a job.
+        const jobId=input.jobId===undefined?before?.jobId:input.jobId;
+        const job=jobId==null?null:getJ(integer(jobId,1,1e9));
+        if(job){
+          if(job.clientId!==clientId)fail('Il lavoro deve appartenere allo stesso cliente della fattura.');
+          if(job.status!=='completed')fail('Il lavoro deve essere completato prima della fatturazione.');
+          if(state.invoices.some(i=>i.jobId===job.id&&i.id!==before?.id&&i.status!=='cancelled'))fail('Esiste già una fattura attiva collegata a questo lavoro.',409);
+          if(quote&&job.quoteId!==quote.id)fail('Il preventivo non è collegato a questo lavoro.');
+        }
+        const document=JSON.stringify({title,notes,lines,client,company:camel(tenant),job:job?{id:job.id,title:job.title}:null});
+        const value={clientId,jobId:job?.id||null,quoteId:quote?.id||null,issueDate,dueDate,document,net,tax,total,updated:now,revision:before?before.revision+1:1};
         if(before){required(reason,2000);after=await update(tx,t,'invoices',before.id,value);}else{const id=(await one(tx,'SELECT coalesce(max(id),0)+1 AS id FROM invoices WHERE tenant_id=$1',[t])).id;after=await insert(tx,t,'invoices',{...value,number:`FAT-${issueDate.slice(0,4)}-${String(id).padStart(4,'0')}`,status:'draft',payment:JSON.stringify({}),paidAt:null,created:now},id);}
       } else if(action==='invoice-status') {
         if(!before)fail('Fattura non trovata.',404);required(reason,2000);
