@@ -559,3 +559,15 @@ DO $$ BEGIN
   INSERT INTO schema_version(version) VALUES(19);
  END IF;
 END $$
+
+-- next
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM schema_version WHERE version=20) THEN
+  ALTER TABLE invoices ADD COLUMN job_id integer;
+  ALTER TABLE invoices ADD CONSTRAINT invoices_job_fk
+    FOREIGN KEY(tenant_id,job_id) REFERENCES jobs(tenant_id,id);
+  CREATE UNIQUE INDEX invoices_active_job_idx ON invoices(tenant_id,job_id)
+    WHERE job_id IS NOT NULL AND status<>'cancelled';
+  INSERT INTO schema_version(version) VALUES(20);
+ END IF;
+END $$

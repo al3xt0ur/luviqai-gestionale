@@ -1,5 +1,6 @@
 import {useMemo,useState} from 'react';
 import {post,Session} from './access';
+import type {Invoice} from './invoices';
 import type {Quote} from './quotes';
 
 export type Job={
@@ -19,7 +20,7 @@ const next:Record<Job['status'],Job['status'][]>={
   cancelled:[]
 };
 
-export function Jobs({items,clients,quotes,packages,interventions,session,onSaved,onNewIntervention,onNavigate}:{items:Job[];clients:Client[];quotes:Quote[];packages:Package[];interventions:Intervention[];session:Session;onSaved:()=>Promise<void>;onNewIntervention:(job:Job)=>void;onNavigate?:(page:string)=>void}){
+export function Jobs({items,clients,quotes,packages,interventions,session,onSaved,onNewIntervention,invoices,onInvoice}:{items:Job[];clients:Client[];quotes:Quote[];packages:Package[];interventions:Intervention[];session:Session;onSaved:()=>Promise<void>;onNewIntervention:(job:Job)=>void;invoices:Invoice[];onInvoice:(job:Job)=>void}){
   const [modal,setModal]=useState<any>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const accepted=useMemo(()=>quotes.filter(q=>q.status==='accepted'&&!items.some(j=>j.quoteId===q.id)),[quotes,items]);
   const clientName=(id:number)=>clients.find(c=>c.id===id)?.name||'Cliente';
@@ -74,7 +75,7 @@ export function Jobs({items,clients,quotes,packages,interventions,session,onSave
         const primary=next[j.status].find(status=>status!=='cancelled');
         return <tr key={j.id}><td><strong>{j.title}</strong><span>#{j.id}{j.description?` · ${j.description}`:''}</span></td><td>{clientName(j.clientId)}</td><td>{j.quoteId?<span>Preventivo #{j.quoteId}</span>:null}{j.packageId?<span>Pacchetto #{j.packageId}</span>:null}<small>{count} interventi</small></td><td>{j.dueDate?<div className={overdue?'due-date overdue':'due-date'}><span>{new Date(j.dueDate+'T12:00:00').toLocaleDateString('it-IT')}</span>{overdue&&<b>Scaduto da {overdueDays} {overdueDays===1?'giorno':'giorni'}</b>}</div>:'—'}</td><td><span className={'badge '+(j.status==='active'?'approved':j.status==='cancelled'?'cancelled':j.status==='completed'?'approved':'planned')}>{statusLabel[j.status]}</span></td><td><div className="job-actions">
           {primary&&<button onClick={()=>setModal({kind:'status',item:j,status:primary})}>{primary==='planned'?'Pianifica →':primary==='active'?'Avvia →':'Completa →'}</button>}
-          {j.status==='completed'&&onNavigate&&<button onClick={()=>onNavigate('Fatture')}>Crea fattura →</button>}
+          {j.status==='completed'&&<button onClick={()=>onInvoice(j)}>{invoices.some(i=>i.jobId===j.id&&i.status!=='cancelled')?'Apri fattura →':'Crea fattura →'}</button>}
           <details className="action-menu"><summary aria-label="Altre azioni">⋯</summary><div>
             {['draft','planned'].includes(j.status)&&<button onClick={()=>setModal({kind:'edit',item:j})}>Modifica</button>}
             {!['completed','cancelled'].includes(j.status)&&<button onClick={()=>onNewIntervention(j)}>＋ Intervento</button>}
